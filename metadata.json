@@ -1,0 +1,8 @@
+{
+  "name": "OMPH CHOIR",
+  "description": "Comprehensive church choir management, attendance, punctuality, 21-day debt query discipline, and financial accountability system for Provosts and Choir Masters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

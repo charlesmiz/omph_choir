@@ -1,0 +1,1075 @@
+# PROJECT: CHOIR MANAGEMENT, ATTENDANCE, DISCIPLINE AND FINANCIAL ACCOUNTABILITY SYSTEM
+
+## ROLE AND EXPECTATIONS
+
+Act as a senior software architect, Google Workspace engineer, database designer, Google Apps Script specialist, financial record-management specialist and user-experience designer.
+
+Your task is to design and implement a complete digital management system for a church choir with approximately 30–50 members.
+
+This is a practical management system that will be operated primarily by the Provost, with oversight from the Choir Master and authorised executives.
+
+I want a professional, reliable, automated, transparent and easy-to-use system.
+
+I am not a professional software developer. The system must therefore be simple enough for a non-technical choir executive to operate from a smartphone or laptop.
+
+Do not merely describe what could be built. Produce a complete, implementable solution.
+
+# PART 1: NON-NEGOTIABLE FINANCIAL AND TECHNOLOGY CONSTRAINTS
+
+## 1. Zero-budget implementation
+
+The choir currently has no dedicated funding for software development, WhatsApp API subscriptions, hosting or third-party services.
+
+Therefore, the first version MUST use:
+
+- Google Sheets.
+- Google Forms.
+- Google Apps Script.
+- Google Drive.
+
+Use a standard personal Google account wherever possible.
+
+Do not introduce:
+
+- Paid WhatsApp API services.
+- Paid chatbot providers.
+- Paid web hosting.
+- Firebase services that require billing.
+- Paid database subscriptions.
+- AppSheet subscriptions.
+- Paid third-party automation platforms.
+- Unnecessary external APIs.
+- Paid QR-code services.
+
+The solution must avoid recurring software charges.
+
+Where a proposed feature requires a paid service, do not implement it. Explain the limitation and provide a free alternative.
+
+Use Google's existing services and stay within their applicable free-account quotas.
+
+Do not activate any Google Cloud billing account or paid service.
+
+## 2. WhatsApp is a future feature, NOT part of Phase 1
+
+A WhatsApp chatbot may eventually be introduced, but it is not currently funded.
+
+Do not build, deploy or activate a WhatsApp Business API integration in the initial version.
+
+However, design the database and architecture so that a future WhatsApp bot can connect without requiring the entire system to be rebuilt.
+
+This means:
+
+- Every chorister must have a permanent unique Member ID.
+- Every rehearsal must have a unique Session ID.
+- Every attendance entry must have a unique Attendance ID.
+- Every fine must have a unique Fine ID.
+- Every payment must have a unique Payment ID.
+- Every complaint, query and application must have a unique reference number.
+- Store phone numbers in a standardised format, preferably international format.
+- Maintain a clean and consistent database structure.
+- Separate the database from the user interface.
+- Keep business rules centralised rather than embedding them only in individual forms.
+
+Create a documented future integration plan explaining how WhatsApp could later connect to the same database.
+
+Do not allow a future WhatsApp integration requirement to delay or complicate the initial system.
+
+# PART 2: GOVERNING DOCUMENTS
+
+The Constitution and Attendance, Punctuality and Accountability Policy will be provided as attachments at the end of this prompt.
+
+They are proposed governance documents awaiting the Choir Master's approval.
+
+They must be treated as the primary source of operational and disciplinary requirements.
+
+The system must not invent additional choir rules or contradict these documents.
+
+Where a rule has not been ratified or remains ambiguous, make it configurable and clearly identify the decision that requires approval.
+
+# PART 3: SYSTEM ARCHITECTURE
+
+Build the first version using:
+
+1. Google Sheets as the central database and dashboard.
+2. Google Forms for chorister submissions.
+3. Google Apps Script for automation and administrative controls.
+4. Google Drive for document storage and backup.
+
+Create two separate Google Sheets workbooks.
+
+## WORKBOOK A: PRIVATE EXECUTIVE MASTER WORKBOOK
+
+Accessible only to:
+
+- Provost.
+- Choir Master.
+- Specifically authorised executives.
+
+Contains all administrative, attendance and financial information.
+
+## WORKBOOK B: PUBLIC ATTENDANCE REGISTER
+
+Accessible to choir members as viewers.
+
+Contains finalised attendance information.
+
+It must never expose:
+
+- Individual payment histories.
+- Cumulative outstanding balances.
+- Private complaint details.
+- Accommodation evidence.
+- Confidential personal information.
+
+The public workbook must be a separate file, not a hidden sheet in the executive workbook.
+
+Use Google Drive access permissions to control sharing.
+
+Do not make private records publicly accessible through hidden tabs, formulas or downloadable data exports.
+
+# PART 4: MEMBERSHIP MANAGEMENT
+
+Create a complete membership management module.
+
+The membership register must contain:
+
+- Unique Member ID.
+- Full name.
+- Voice part.
+- Contact telephone number.
+- Membership date.
+- Membership status.
+- Approved attendance arrangement.
+- Registration date.
+- Administrative notes.
+
+## Membership statuses
+
+Support:
+
+1. Active.
+2. Under Query.
+3. Suspended.
+4. Inactive.
+5. Resigned.
+
+Do not confuse membership status with financial status or attendance accommodation.
+
+A chorister can be:
+
+- Membership status: Active.
+- Financial status: Outstanding.
+- Disciplinary status: Query Issued.
+- Attendance arrangement: Standard.
+
+These must be separate fields.
+
+Suspended members must retain their historical attendance and financial records.
+
+The system must allow the Provost to:
+
+- Register members.
+- Edit membership details.
+- Deactivate members.
+- Reactivate members.
+- Record resignations.
+- Review attendance history.
+- Review outstanding debts.
+- View query and suspension history.
+- Process reinstatement following authorised approval.
+
+When a member is suspended or inactive, their attendance should not automatically be treated as unexcused absence in future sessions.
+
+# PART 5: REHEARSAL SCHEDULING
+
+This system must support flexible rehearsal schedules.
+
+Our activities can change because of Mass, church programmes, robe preparation, town sanitation and transport restrictions.
+
+Establish the following default timetable:
+
+| Activity | Default required arrival |
+|---|---|
+| Friday rehearsal | 6:30 PM |
+| Saturday rehearsal | 8:30 AM |
+| Sunday pre-Mass gathering | 7:30 AM |
+| Sunday post-Mass rehearsal | Manually configured |
+
+Friday rehearsal usually starts around 7:00 PM because Mass may continue until approximately 6:45 PM.
+
+Sunday pre-Mass arrival time can change depending on robe preparation.
+
+Sunday post-Mass rehearsal usually falls around 11:00 AM–12:30 PM, but must be configurable for each date.
+
+## Individual session settings
+
+Each rehearsal must have:
+
+- Session ID.
+- Activity type.
+- Date.
+- Required arrival time.
+- Actual rehearsal start time.
+- Rehearsal end time, where applicable.
+- Attendance opening time.
+- Attendance closing time.
+- Grace period.
+- Compulsory or optional status.
+- Whether financial penalties apply.
+- Special circumstances.
+- Approving officer.
+- Schedule announcement timestamp.
+- Session status.
+
+The Provost must be able to change the required arrival time for a specific rehearsal without changing the default timetable.
+
+For example, Saturday's normal arrival time is 8:30 AM, but town sanitation delays transport until 9:00 AM.
+
+The Provost changes that individual session to 9:00 AM.
+
+The late-arrival calculations must automatically use 9:00 AM.
+
+Keep the original default unchanged.
+
+## Schedule change audit
+
+Record:
+
+- Old time.
+- New time.
+- Reason.
+- Person responsible.
+- Modification date and time.
+
+Do not permit unapproved retrospective changes after attendance is finalised.
+
+A schedule revision must be communicated before the session begins.
+
+# PART 6: ATTENDANCE MANAGEMENT
+
+Create two attendance methods.
+
+## METHOD A: CHORISTER SELF-CHECK-IN
+
+Create a Google Form connected to the master workbook.
+
+Generate a session-specific pre-filled attendance link.
+
+Where possible, provide instructions for converting the link into a QR code using a free browser feature.
+
+The chorister scans the QR code using their phone camera and opens the attendance form.
+
+Required information:
+
+- Member ID or registered member selection.
+- Current Session ID.
+- Session access code.
+
+The form submission timestamp must be automatically recorded.
+
+Do not allow members to manually enter their own arrival timestamps.
+
+The system must:
+
+- Validate the member.
+- Validate the active session.
+- Check the session access code.
+- Detect duplicate submissions.
+- Reject or flag submissions outside the permitted attendance window.
+- Identify the check-in method.
+- Mark the entry as requiring physical verification where necessary.
+
+A QR code is not proof of physical presence.
+
+Require the Provost or designated attendance assistant to verify check-ins.
+
+Use session-specific access codes, and make them invalid after the applicable session.
+
+## METHOD B: PROVOST-ASSISTED CHECK-IN
+
+Some choristers will not have smartphones, working batteries or internet access.
+
+Create an efficient manual check-in interface for the Provost or authorised attendance assistant.
+
+The officer must be able to:
+
+1. Open the current rehearsal.
+2. Search for a chorister by name or Member ID.
+3. Select the chorister.
+4. Mark them Present.
+5. Record their observed arrival time.
+6. Save the record.
+
+The system must record two separate timestamps:
+
+**Actual arrival time:** When the officer observed the chorister arriving.
+
+**Record entry time:** When the attendance information was entered into the system.
+
+Example:
+
+A member arrives at 7:32 AM.
+
+The Provost enters the attendance at 7:35 AM.
+
+Store:
+
+- Actual arrival time: 7:32 AM.
+- Entry time: 7:35 AM.
+- Entry method: Manual.
+- Recorded by: Provost.
+- Verification: Confirmed.
+
+Do not replace the actual arrival time with the later record entry time.
+
+The same distinction must exist for all manual corrections.
+
+Maintain an audit trail for every edit.
+
+## ATTENDANCE CLASSIFICATIONS
+
+Support:
+
+- Present.
+- Late.
+- Absent.
+- Excused.
+- Not Expected.
+- Pending Review.
+- Suspended, where relevant to the session's attendance rules.
+
+## PUNCTUALITY CALCULATION
+
+Use a default five-minute grace period.
+
+Calculate the deadline using:
+
+Required arrival time + grace period.
+
+For example:
+
+Required arrival: 7:30 AM.
+
+- 7:29 AM: Present.
+- 7:30 AM: Present.
+- 7:35 AM: Present.
+- 7:35:59 AM: Present.
+- 7:36 AM: Late.
+
+Do not hardcode 7:30 AM.
+
+Every session must use its individual configuration.
+
+# PART 7: EXCUSE AND COMPLAINT MANAGEMENT
+
+Create two separate Google Forms.
+
+## A. ABSENCE NOTIFICATION FORM
+
+Required fields:
+
+- Member ID.
+- Full name.
+- Session ID or rehearsal date.
+- Reason for absence.
+- Anticipated or emergency absence.
+- Supporting explanation where appropriate.
+
+The submission timestamp must be automatic.
+
+Initial status: Pending Review.
+
+The Provost or authorised executive can approve or reject the application.
+
+An approved excuse results in an Excused attendance classification.
+
+An excuse submission is not automatically an approval.
+
+## B. COMPLAINT AND DISPUTE FORM
+
+Create a confidential complaint submission form.
+
+Allow members to complain about:
+
+- Incorrect attendance entries.
+- Incorrect financial penalties.
+- Payment records.
+- Accommodation decisions.
+- Administrative conduct.
+- Other choir management concerns.
+
+Generate a unique Complaint ID.
+
+Record:
+
+- Member ID.
+- Complaint date.
+- Issue category.
+- Description.
+- Relevant session or transaction ID.
+- Evidence, where applicable.
+- Assigned officer.
+- Resolution status.
+- Decision.
+- Resolution date.
+
+Complaint classifications:
+
+- New.
+- Under Review.
+- Further Information Required.
+- Resolved.
+- Rejected.
+- Escalated.
+
+Complaints about the Provost should be reviewable by the Choir Master or another authorised executive without requiring the Provost to decide their own case.
+
+Complaint details must remain private.
+
+# PART 8: APPROVED ATTENDANCE ACCOMMODATION
+
+Implement a formal attendance accommodation module.
+
+Accommodation categories:
+
+1. Employment-related scheduling conflicts.
+2. Significant transport and distance constraints.
+3. Agreed music instruction or choir teaching responsibilities.
+4. Other exceptional circumstances approved by the leadership.
+
+Having a side hustle or personal business must not automatically qualify a student for accommodation.
+
+Applications should demonstrate a genuine, recurring and reasonably unavoidable conflict.
+
+Require:
+
+- Member ID.
+- Application category.
+- Explanation.
+- Specific days affected.
+- Specific rehearsal types affected.
+- Requested duration.
+- Supporting information, where proportionate.
+- Other activities the member can attend.
+
+## APPROVAL
+
+Applications require approval from:
+
+- Choir Master.
+- First designated executive representative.
+- Second designated executive representative.
+
+The applicant must not approve their own request.
+
+## ACCOMMODATION CONFIGURATION
+
+Record:
+
+- Start date.
+- Expiry date.
+- Applicable rehearsal days.
+- Applicable session types.
+- Whether late penalties are exempted.
+- Whether absence penalties are exempted.
+- Individual arrival arrangements.
+- Agreed teaching responsibilities.
+- Approval history.
+
+Support temporary and renewable arrangements.
+
+Normal maximum duration: one academic term or three months, subject to the governing policy.
+
+Do not allow indefinite exemptions.
+
+Attendance must still be recorded for accommodated members.
+
+If a member is not expected at a particular session, classify them as Not Expected.
+
+If they are expected but have a penalty exemption, retain their actual attendance classification while applying the approved financial exemption.
+
+Full accommodation reasons and supporting evidence must never appear in the public register.
+
+# PART 9: FINANCIAL PENALTY SYSTEM
+
+Use the proposed default fines, subject to ratification:
+
+| Violation | Amount |
+|---|---:|
+| Late arrival | ₦200 |
+| Unexcused absence | ₦500 |
+| Approved excuse | ₦0 |
+| Approved penalty exemption | ₦0 |
+
+Fine amounts must be configurable from the Settings sheet.
+
+After attendance is reviewed and finalised:
+
+- Assess ₦200 for applicable late arrivals.
+- Assess ₦500 for applicable unexcused absences.
+- Do not assess fines for approved excuses.
+- Do not assess fines for Not Expected members.
+- Respect approved accommodation conditions.
+
+Create a Fine Ledger containing:
+
+- Fine ID.
+- Member ID.
+- Session ID.
+- Date.
+- Violation type.
+- Amount.
+- Assessment timestamp.
+- Applicable exemption.
+- Assessment officer.
+- Payment status.
+
+Never delete an original fine because a member has paid.
+
+# PART 10: PAYMENT LEDGER AND INDIVIDUAL ACCOUNTS
+
+The Provost personally collects and records choir penalties.
+
+Build a dedicated payment interface.
+
+Every transaction must contain:
+
+- Payment ID.
+- Member ID.
+- Member name.
+- Payment date.
+- Amount.
+- Payment method.
+- Bank reference, where available.
+- Receipt number.
+- Officer who received the payment.
+- Officer who recorded the payment.
+
+Support:
+
+- Cash payments.
+- Bank transfers.
+- Partial payments.
+- Multiple payments.
+- Full settlement.
+- Approved waivers.
+- Adjustments.
+- Account credits where a payment exceeds the amount owed.
+
+Use separate Fine, Payment and Adjustment Ledgers.
+
+Calculate:
+
+Outstanding Balance = Total Approved Fines - Total Payments - Approved Waivers/Adjustments.
+
+Never use a manually typed outstanding balance as the source of truth.
+
+Every balance must be calculated from the underlying transactions.
+
+Create an individual account summary for each member.
+
+Example:
+
+| Member | Fines | Paid | Balance |
+|---|---:|---:|---:|
+| Member A | ₦700 | ₦200 | ₦500 |
+| Member B | ₦200 | ₦200 | ₦0 |
+| Member C | ₦500 | ₦0 | ₦500 |
+
+Partial payments must automatically reduce the balance.
+
+Do not delete historical transactions.
+
+## FINANCIAL TRANSPARENCY
+
+The system must provide three levels of visibility.
+
+**Executive access:**
+
+Full fine records, payments, balances, waivers and financial reports.
+
+**Individual member access:**
+
+Their own financial statement, fines, payments and outstanding balance.
+
+**Choir-wide financial reporting:**
+
+Total fines assessed, total money collected, total outstanding debt, total waivers and fund movement reports.
+
+The public financial report should not expose cumulative individual debts by default.
+
+Allow the Choir Master to approve whether individual session penalties and their assessment status are displayed alongside the public attendance record.
+
+Do not publicly expose private payment histories.
+
+Generate printable financial reports.
+
+# PART 11: THREE-WEEK DEBT QUERY AND SUSPENSION MANAGEMENT
+
+This is a compulsory feature.
+
+The choir has an existing proposed rule:
+
+A member whose financial penalty remains unpaid after three weeks may be issued an official query. If the member fails to provide a satisfactory response, they may subsequently be suspended following an authorised decision.
+
+Implement this workflow.
+
+## STAGE 1: FINE ASSESSED
+
+Record the fine and assessment date.
+
+Calculate its due date using 21 calendar days, subject to ratification of the precise commencement rule.
+
+## STAGE 2: PAYMENT PERIOD
+
+The member can settle the debt through full or partial payments.
+
+An approved payment arrangement must be recorded separately.
+
+## STAGE 3: QUERY FLAG
+
+If an outstanding balance remains unpaid after the approved 21-day period:
+
+- Flag the member.
+- Generate a Query ID.
+- Prepare an official query notice.
+- Record the outstanding amount.
+- Identify the original fine transactions.
+- Record the query issue date.
+- Establish a response deadline.
+
+The system should prepare the query for approval and issuance.
+
+Do not send disciplinary queries automatically without authorised review.
+
+## STAGE 4: MEMBER RESPONSE
+
+Allow the member to submit a response through the appropriate form.
+
+Record:
+
+- Query ID.
+- Response date.
+- Explanation.
+- Supporting information.
+- Relevant payment information.
+
+## STAGE 5: EXECUTIVE REVIEW
+
+The Choir Master and designated executives review the response.
+
+Possible outcomes:
+
+- Resolved.
+- Payment arrangement approved.
+- Further explanation requested.
+- Query upheld.
+- Suspension recommended.
+- No further action.
+
+## STAGE 6: SUSPENSION
+
+Suspension must require an authorised human decision.
+
+The system must never automatically suspend a member merely because 21 days have elapsed.
+
+Record:
+
+- Suspension decision.
+- Effective date.
+- Reason.
+- Approving officers.
+- Member notification.
+- Conditions for reinstatement.
+
+The membership register must show Suspended.
+
+Suspended members' historical records must remain intact.
+
+The system must support reinstatement after the relevant conditions have been met and the Choir Master has approved the decision.
+
+The suspension policy must also specify what participation is restricted during suspension. Do not invent that rule.
+
+# PART 12: MASTER WORKBOOK SHEET STRUCTURE
+
+Create the following sheets:
+
+1. Executive Dashboard.
+2. Settings and Configuration.
+3. Chorister Membership.
+4. Rehearsal Schedule.
+5. Attendance Raw Responses.
+6. Final Attendance Register.
+7. Manual Attendance Entries.
+8. Absence Notifications.
+9. Accommodation Applications.
+10. Approved Accommodations.
+11. Fine Ledger.
+12. Payment Ledger.
+13. Adjustment and Waiver Ledger.
+14. Individual Financial Accounts.
+15. Queries and Responses.
+16. Suspension and Reinstatement Register.
+17. Complaints and Disputes.
+18. Fund Movement and Expense Register.
+19. Monthly Reports.
+20. Audit Log.
+
+Create additional sheets only when technically necessary.
+
+Use stable IDs to connect related records.
+
+Do not create redundant records or conflicting sources of truth.
+
+# PART 13: DASHBOARD
+
+Create a professional, visually polished dashboard.
+
+It should show:
+
+## Attendance statistics
+
+- Total active members.
+- Present.
+- Late.
+- Absent.
+- Excused.
+- Not Expected.
+- Pending Review.
+- Attendance percentage.
+
+## Financial statistics
+
+- Total fines assessed.
+- Total money collected.
+- Outstanding balance.
+- Total approved waivers.
+- Cash received.
+- Bank transfers received.
+- Actual funds remaining.
+- Total expenditure.
+
+## Administrative statistics
+
+- Active members.
+- Members under query.
+- Suspended members.
+- Pending excuse applications.
+- Pending accommodation applications.
+- Expiring accommodations.
+- Pending complaints.
+- Outstanding query responses.
+- Overdue financial accounts.
+
+## Visual reports
+
+- Weekly attendance trends.
+- Monthly attendance trends.
+- Member punctuality history.
+- Fine collection trends.
+- Outstanding debt trends.
+- Payment method distribution.
+- Monthly financial reconciliation.
+
+Provide date filters and session filters.
+
+Avoid public shaming or negative member rankings.
+
+# PART 14: PUBLIC ATTENDANCE WORKBOOK
+
+Create a separate view-only workbook.
+
+Publish finalised attendance records only.
+
+Display:
+
+- Session date.
+- Activity.
+- Required arrival time.
+- Member name.
+- Actual arrival time.
+- Attendance classification.
+- Individual session penalty amount, where authorised.
+
+Do not expose:
+
+- Cumulative individual debts by default.
+- Individual payment histories.
+- Bank details.
+- Private reasons for accommodation.
+- Private complaint and query information.
+
+Allow members to verify their attendance and challenge incorrect entries through the appropriate process.
+
+# PART 15: PROVOST ADMINISTRATIVE INTERFACE
+
+Create a custom Google Sheets menu called:
+
+CHOIR MANAGEMENT.
+
+It should contain:
+
+- Register New Chorister.
+- Edit Chorister Details.
+- Create Rehearsal Session.
+- Edit Rehearsal Timetable.
+- Generate Session Attendance Link.
+- Generate Session QR Instructions.
+- Open Attendance.
+- Manual Check-in.
+- Reconcile Attendance.
+- Review Excuses.
+- Review Accommodation Applications.
+- Finalise Attendance.
+- Assess Fines.
+- Record Payment.
+- Process Approved Adjustment.
+- Review Financial Accounts.
+- Generate Official Query.
+- Record Query Response.
+- Process Suspension.
+- Reinstate Member.
+- Review Complaints.
+- Generate Monthly Report.
+- Update Public Attendance Register.
+- Back Up Data.
+
+The Provost should be able to manage an entire rehearsal using a simple sequence of actions.
+
+# PART 16: SECURITY AND AUDITABILITY
+
+Implement:
+
+- Restricted executive access.
+- Separate public workbook.
+- Protected formulas.
+- Input validation.
+- Unique identifiers.
+- Audit logs.
+- Duplicate detection.
+- Backup procedures.
+- Change history.
+- No silent financial record deletion.
+- No unauthorised retrospective changes.
+
+Maintain an audit record for important actions.
+
+For each action, retain:
+
+- User or officer responsible.
+- Action performed.
+- Original value.
+- Updated value.
+- Date and time.
+- Reason.
+
+Do not expose private financial records through public sheets or generated reports.
+
+Explain all necessary Google permissions before deployment.
+
+# PART 17: FUTURE WHATSAPP INTEGRATION READINESS
+
+Do not implement WhatsApp now.
+
+However, prepare an integration specification for a later version.
+
+The future WhatsApp interface should eventually support:
+
+- Attendance check-in.
+- Absence notification.
+- Personal attendance history.
+- Personal financial statements.
+- Payment submission.
+- Complaint submission.
+- Accommodation applications.
+- Query responses.
+- Rehearsal timetable.
+- Administrative functions for authorised executives.
+
+The future integration should connect to the existing data model through a controlled backend.
+
+Do not expose Google Sheets editing access or sensitive data to a WhatsApp user.
+
+Every user must be verified against their registered Member ID and phone number.
+
+Do not create any WhatsApp API dependency in the initial deployment.
+
+# PART 18: TESTING
+
+Create dummy data for approximately 40 fictional choristers.
+
+Do not use actual members' financial or personal information while testing.
+
+Test all of the following:
+
+1. Normal on-time arrival.
+2. Late arrival.
+3. Exact grace-period boundary.
+4. One second after the grace period.
+5. Manually changed rehearsal time.
+6. Friday schedule changed because of Mass.
+7. Saturday schedule changed because of sanitation.
+8. Sunday robe-related schedule change.
+9. Member checking in without a phone.
+10. Member checking in using a QR code.
+11. Duplicate check-in.
+12. Invalid session code.
+13. Approved excuse.
+14. Rejected excuse.
+15. Valid work-related accommodation.
+16. Student claiming a side hustle without sufficient justification.
+17. Music instructor accommodation.
+18. Expired accommodation.
+19. ₦200 fine.
+20. ₦500 fine.
+21. Partial payment.
+22. Full payment.
+23. Multiple payments.
+24. Approved waiver.
+25. Payment exceeding debt.
+26. Outstanding debt at 21 days.
+27. Query issuance.
+28. Query response.
+29. Approved suspension.
+30. Reinstatement.
+31. Complaint submission.
+32. Manual attendance correction.
+33. Public register synchronisation.
+34. Financial reconciliation.
+35. Access-control verification.
+
+For every test, demonstrate the expected result.
+
+# PART 19: IMPLEMENTATION DELIVERABLES
+
+I need a complete, runnable solution.
+
+Provide:
+
+1. Complete Google Apps Script source code.
+2. Necessary HTML files for any custom interface.
+3. Complete Google Sheets structure.
+4. All Google Forms.
+5. All formulas and calculations.
+6. Attendance automation.
+7. Scheduling automation.
+8. Fine assessment automation.
+9. Debt tracking.
+10. Query and suspension management.
+11. Payment recording.
+12. Public register synchronisation.
+13. Dashboard.
+14. Audit system.
+15. Backup and recovery functionality.
+16. Complete installation and deployment guide.
+17. Beginner-friendly operating manual.
+
+Use modular, well-commented and maintainable code.
+
+Do not provide pseudocode or incomplete examples.
+
+Where direct access to my Google account is unavailable, generate all required files and give me the exact steps to install and authorise them.
+
+Do not pretend that anything has been deployed unless you have actually deployed and verified it.
+
+Do not require a paid Google Workspace subscription or any third-party paid service for the core system.
+
+# PART 20: IMPLEMENTATION SEQUENCE
+
+Work in the following order:
+
+**PHASE 1 – GOVERNANCE REVIEW**
+
+Read the attached Constitution and Attendance Policy.
+
+Extract all operational rules and create a requirements-to-features mapping.
+
+Identify ambiguous or unapproved decisions.
+
+**PHASE 2 – SYSTEM DESIGN**
+
+Design the database, workbook separation, security, forms and automation.
+
+**PHASE 3 – BUILD**
+
+Generate the complete solution.
+
+**PHASE 4 – TESTING**
+
+Use dummy data and run all required tests.
+
+**PHASE 5 – DEPLOYMENT**
+
+Give me beginner-friendly instructions to create and authorise the system in my own Google account.
+
+**PHASE 6 – HANDOVER**
+
+Produce a simple operating manual for the Provost.
+
+It should explain:
+
+- What to do before rehearsals.
+- How to record attendance during rehearsals.
+- How to finalise attendance.
+- How to record fines.
+- How to receive payments.
+- How to manage accommodation.
+- How to issue queries.
+- How to process suspension.
+- How to reconcile funds.
+- How to generate monthly reports.
+
+# FINAL QUALITY STANDARD
+
+The final solution must be:
+
+- Free of recurring software costs for its core functionality.
+- Reliable.
+- Mobile-friendly.
+- Secure.
+- Easy to operate.
+- Transparent.
+- Financially auditable.
+- Fair in its application of choir rules.
+- Configurable when rehearsal schedules or policies change.
+- Ready for future WhatsApp integration without depending on it.
+
+Prioritise accuracy, data integrity, simplicity and security over unnecessary visual complexity.
+
+Do not build a system that makes the Provost manually calculate attendance, fines and outstanding debts.
+
+Do not build a system that automatically punishes members without human attendance verification and approval.
+
+The objective is to create a small but properly governed digital administration system for the choir.
+
+---
+
+# GOVERNING DOCUMENTS — READ THESE BEFORE DOING ANYTHING
+
+The following two documents are attached to this prompt:
+
+**DOCUMENT 1: PROPOSED CHOIR CONSTITUTION**
+
+**DOCUMENT 2: PROPOSED CHOIR ATTENDANCE, PUNCTUALITY AND ACCOUNTABILITY POLICY**
+
+CRITICAL INSTRUCTION:
+
+Before designing the database, writing any code, generating any spreadsheet, creating any forms or proposing the system architecture, read BOTH attached documents in their entirety.
+
+Do not skim them.
+
+First, extract the rules, responsibilities, approval authorities, penalties, exemptions, financial procedures, query procedures and suspension provisions.
+
+Treat the documents as the governing requirements for this project.
+
+They are proposals awaiting approval by the Choir Master. Clearly distinguish approved rules from pending proposals.
+
+Do not invent provisions or silently change their meaning.
+
+If a provision is ambiguous or conflicts with another provision, identify it and create a configurable setting where appropriate.
+
+Only after carefully reviewing both documents should you proceed to the requirements mapping and implementation sequence.
+
+If either document is inaccessible, explicitly state that it has not been reviewed. Do not pretend to have read it.
+
+The two governing documents take precedence over generic assumptions about how a choir should operate.
