@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Clock, 
   Search, 
@@ -19,6 +19,7 @@ import {
   AttendanceClassification 
 } from '../types';
 import { evaluatePunctuality } from '../data/testScenarios';
+import { getActiveSession, getNextScheduledSession } from '../utils/sessionLifecycle';
 
 interface AttendanceManagerProps {
   sessions: RehearsalSession[];
@@ -37,9 +38,17 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
   onFinaliseSession,
   onCorrectAttendance,
 }) => {
-  const [selectedSessionId, setSelectedSessionId] = useState<string>(
-    sessions.find(s => s.sessionStatus === 'In Progress')?.sessionId || sessions[0]?.sessionId || ''
-  );
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => {
+    return getActiveSession(sessions)?.sessionId || getNextScheduledSession(sessions)?.sessionId || sessions[0]?.sessionId || '';
+  });
+
+  // Keep selectedSessionId synced when sessions list reconciles
+  useEffect(() => {
+    if (!selectedSessionId || !sessions.some(s => s.sessionId === selectedSessionId)) {
+      const target = getActiveSession(sessions)?.sessionId || getNextScheduledSession(sessions)?.sessionId || sessions[0]?.sessionId || '';
+      if (target) setSelectedSessionId(target);
+    }
+  }, [sessions, selectedSessionId]);
 
   // Manual Check-in Form State
   const [searchChorister, setSearchChorister] = useState('');
@@ -63,8 +72,9 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
   );
 
   const filteredChoristers = members.filter(m => 
-    m.fullName.toLowerCase().includes(searchChorister.toLowerCase()) ||
-    m.memberId.toLowerCase().includes(searchChorister.toLowerCase())
+    m.membershipStatus !== 'Archived' && m.membershipStatus !== 'Inactive' &&
+    (m.fullName.toLowerCase().includes(searchChorister.toLowerCase()) ||
+     m.memberId.toLowerCase().includes(searchChorister.toLowerCase()))
   );
 
   const handleManualSubmit = (e: React.FormEvent) => {
@@ -72,13 +82,18 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
     setEntryError('');
     if (!selectedMemberId) return;
 
+    const member = members.find(m => m.memberId === selectedMemberId);
+    if (!member) return;
+
+    if (member.membershipStatus === 'Archived' || member.membershipStatus === 'Inactive') {
+      setEntryError(`Cannot record check-in: Member ${member.fullName} (${member.memberId}) is currently ${member.membershipStatus.toLowerCase()}.`);
+      return;
+    }
+
     if (isMemberCheckedIn(selectedMemberId)) {
       setEntryError(`Member ${selectedMemberId} is already recorded for this rehearsal.`);
       return;
     }
-
-    const member = members.find(m => m.memberId === selectedMemberId);
-    if (!member) return;
 
     let classification: AttendanceClassification = currentPunctuality.classification;
     if (classification === 'Late' && member.attendanceArrangement.includes('Music Instruction')) {
@@ -120,10 +135,12 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
             <h2 className="text-base font-bold text-slate-900">
               Provost Attendance Operations Desk
             </h2>
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded ${
               activeSession.sessionStatus === 'In Progress' 
-                ? 'bg-amber-100 text-slate-900 border border-amber-200' 
-                : 'bg-slate-100 text-slate-700'
+                ? 'bg-emerald-100 text-emerald-950 border border-emerald-300 animate-pulse' 
+                : activeSession.sessionStatus === 'Finalised' || activeSession.sessionStatus === 'Completed'
+                ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                : 'bg-blue-50 text-blue-800 border border-blue-200'
             }`}>
               {activeSession.sessionStatus}
             </span>
@@ -167,7 +184,6 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
               Fast Manual Check-in
             </h3>
-            <p className="text-[11px] text-slate-500">For choristers arriving without a phone</p>
           </div>
 
           {successMessage && (
@@ -200,10 +216,10 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
                 className="w-full border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900"
               >
                 <option value="">-- Select Arriving Chorister --</option>
-                {filteredChoristers.map(m => {
+                {filteredChoristers.map((m, idx) => {
                   const done = isMemberCheckedIn(m.memberId);
                   return (
-                    <option key={m.memberId} value={m.memberId} disabled={done}>
+                    <option key={`${m.memberId}-${idx}`} value={m.memberId} disabled={done}>
                       {m.fullName} ({m.voicePart}) {done ? '✓ Logged' : ''}
                     </option>
                   );

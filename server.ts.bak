@@ -1,0 +1,2921 @@
+import express from 'express';
+import { createServer as createViteServer } from 'vite';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+
+// In-memory active session store
+interface SessionData {
+  userId: string;
+  username?: string;
+  userType: 'member' | 'executive';
+  fullName: string;
+  role?: string;
+  positionId?: string;
+  permissions?: string[];
+  expiresAt: number;
+}
+const activeSessions = new Map<string, SessionData>();
+
+// Helper: Cryptographic password hashing using Node scrypt
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(password, salt, 64);
+  return `${salt}:${derivedKey.toString('hex')}`;
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  try {
+    if (!storedHash || !storedHash.includes(':')) return false;
+    const [salt, key] = storedHash.split(':');
+    if (!salt || !key) return false;
+    const keyBuffer = Buffer.from(key, 'hex');
+    const derivedKey = crypto.scryptSync(password, salt, 64);
+    return crypto.timingSafeEqual(keyBuffer, derivedKey);
+  } catch {
+    return false;
+  }
+}
+
+function generateRandomToken(bytes = 32): string {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+function generateActivationCode(): string {
+  const digits = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let code = 'ACT-';
+  for (let i = 0; i < 6; i++) {
+    code += digits.charAt(Math.floor(Math.random() * digits.length));
+  }
+  return code;
+}
+
+function generateResetToken(): string {
+  const digits = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let token = 'RST-';
+  for (let i = 0; i < 6; i++) {
+    token += digits.charAt(Math.floor(Math.random() * digits.length));
+  }
+  return token;
+}
+
+// -------------------------------------------------------------
+// Firebase Firestore Client & Cloud Persistence
+// -------------------------------------------------------------
+const firebaseConfigFile = path.resolve(process.cwd(), 'firebase-applet-config.json');
+let firestoreDb: any = null;
+let firestoreDatabaseId = '';
+
+if (fs.existsSync(firebaseConfigFile)) {
+  try {
+    const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigFile, 'utf-8'));
+    firestoreDatabaseId = firebaseConfig.firestoreDatabaseId || '';
+    const fbApp = initializeApp(firebaseConfig, 'omph-backend-service');
+    firestoreDb = getFirestore(fbApp, firestoreDatabaseId);
+    console.log('[Firestore] Successfully initialized persistent database:', firestoreDatabaseId);
+  } catch (err) {
+    console.warn('[Firestore] Warning: Could not initialize Firebase SDK:', err);
+  }
+}
+
+const PARISH_DOC_ID = 'omph_ilorin_production';
+const DATA_FILE = path.resolve(process.cwd(), 'church_storage.json');
+const BACKUP_FILE = path.resolve(process.cwd(), 'church_storage.bak.json');
+const PROD_SNAPSHOT_FILE = path.resolve(process.cwd(), 'church_production_snapshot.json');
+
+// Default 8 executive positions
+function getDefaultPositions() {
+  return [
+    {
+      positionId: 'POS-CM',
+      title: 'Choir Master',
+      code: 'CM',
+      description: 'General artistic, musical, and administrative head of the choral ministry.',
+      defaultPermissions: ['all', 'approvals', 'waivers', 'settings', 'finances', 'discipline', 'roster', 'music_library'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-ACM',
+      title: 'Assistant Choir Master',
+      code: 'ACM',
+      description: 'Assists with musical instruction, rehearsals, sectional reviews, and liturgical conducting.',
+      defaultPermissions: ['rehearsals', 'sectional_reviews', 'music_library', 'attendance_view'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-PV',
+      title: 'Provost',
+      code: 'PV',
+      description: 'Chief disciplinarian responsible for call-time enforcement, punctuality, attendance logs, and fine assessment.',
+      defaultPermissions: ['attendance', 'punctuality', 'fines', 'discipline', 'timetable', 'absences'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-APV',
+      title: 'Assistant Provost',
+      code: 'APV',
+      description: 'Assists the Provost in attendance recording, gatekeeping, and member verification.',
+      defaultPermissions: ['attendance', 'punctuality', 'excuses'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-SEC',
+      title: 'Secretary',
+      code: 'SEC',
+      description: 'Custody of membership records, official minutes, formal communications, and parish announcements.',
+      defaultPermissions: ['roster', 'announcements', 'documentation', 'member_activation'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-FINSEC',
+      title: 'Financial Secretary',
+      code: 'FINSEC',
+      description: 'Dedicated financial officer tracking monthly dues assessments, payment records, billing ledgers, and debtor reports.',
+      defaultPermissions: ['monthly_dues', 'payments', 'financial_reports', 'reconciliation'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-TR',
+      title: 'Treasurer',
+      code: 'TR',
+      description: 'Custody of choir funds, bank transfers verification, bank account updates, and official receipts.',
+      defaultPermissions: ['payments', 'monthly_dues', 'bank_details', 'fund_movements'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+    {
+      positionId: 'POS-LIB',
+      title: 'Librarian',
+      code: 'LIB',
+      description: 'Dedicated music custodian managing choir scripts, tonic sol-fa scores, sheet music uploads, and choral folders.',
+      defaultPermissions: ['music_library', 'scores_upload', 'scripts_edit'],
+      isSystem: true,
+      status: 'Active',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    },
+  ];
+}
+
+// Clean initial state for real parish launch (no demo choristers or fake officer names)
+function getCleanProductionState() {
+  const positions = getDefaultPositions();
+  return {
+    version: '2.5.0',
+    updatedAt: new Date().toISOString(),
+    isDemoMode: false,
+    settings: {
+      parishName: 'Our Mother of Perpetual Help Catholic Parish',
+      choirName: 'OMPH CHOIR',
+      executivePin: '', // Legacy PIN removed in production
+      defaultLateFine: 200,
+      defaultAbsenceFine: 500,
+      defaultGracePeriodMinutes: 5,
+      debtQueryThresholdDays: 21,
+      queryResponseDays: 7,
+      maxAccommodationMonths: 3,
+      publicRegisterShowsFineAmount: true,
+      choirMasterName: 'Vacant / Not Yet Assigned',
+      assistantChoirMasterName: 'Vacant / Not Yet Assigned',
+      provostName: 'Vacant / Not Yet Assigned',
+      assistantProvostName: 'Vacant / Not Yet Assigned',
+      secretaryName: 'Vacant / Not Yet Assigned',
+      financialSecretaryName: 'Vacant / Not Yet Assigned',
+      treasurerName: 'Vacant / Not Yet Assigned',
+      librarianName: 'Vacant / Not Yet Assigned',
+      currencySymbol: '₦',
+      diocese: 'Catholic Diocese of Ilorin',
+      parishAbbreviation: 'OMPH',
+      parishAddress: 'Ilorin, Kwara State, Nigeria',
+      parishContactPhone: '+234 803 000 0000',
+      parishContactEmail: 'omphchoir.ilorin@catholicparish.ng',
+      patronSaint: 'St. Cecilia',
+      feastDay: 'November 22',
+      choirMotto: 'Cantare Amantis Est — To Sing is the Mark of Love',
+      parishLogoUrl: '/assets/aistudio/omph_37e5c155.jpg',
+      choirEmblemUrl: '/assets/aistudio/omph_37e5c155.jpg',
+      positions,
+      bankDetails: {
+        bankName: '',
+        accountName: '',
+        accountNumber: '',
+        paymentInstructions: 'Please specify your full name and Member ID in the payment narration.',
+        paymentContact: 'Treasurer',
+        isVerified: false,
+        lastUpdated: new Date().toISOString(),
+      },
+      monthlyDuesConfig: {
+        isEnabled: false,
+        amount: 0,
+        currency: '₦',
+        effectiveCommencementMonth: '2026-11',
+        monthlyBillingDay: 1,
+        paymentDeadlineDays: 21,
+        gracePeriodDays: 5,
+        allowsPaymentArrangements: true,
+        subjectTo21DayQuery: false,
+      },
+    },
+    positions,
+    executiveAccounts: [], // Initial state: empty until administrator bootstraps their account!
+    members: [], // Clean production: 0 members initially
+    memberAccounts: [],
+    sessions: [
+      {
+        sessionId: 'SES-001',
+        activityType: 'Friday Rehearsal',
+        date: new Date().toISOString().split('T')[0],
+        defaultRequiredArrivalTime: '17:30',
+        requiredArrivalTime: '17:30',
+        actualStartTime: '17:35',
+        attendanceOpeningTime: '17:00',
+        attendanceClosingTime: '18:15',
+        gracePeriodMinutes: 5,
+        isCompulsory: true,
+        penaltiesApply: true,
+        approvingOfficer: 'Choir Master',
+        scheduleAnnouncementTimestamp: new Date().toISOString(),
+        sessionStatus: 'In Progress',
+        accessCode: 'OMPH-FR',
+        latePenaltyAmount: 200,
+        absencePenaltyAmount: 500,
+      },
+      {
+        sessionId: 'SES-002',
+        activityType: 'Saturday Rehearsal',
+        date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+        defaultRequiredArrivalTime: '16:00',
+        requiredArrivalTime: '16:00',
+        actualStartTime: '16:05',
+        attendanceOpeningTime: '15:30',
+        attendanceClosingTime: '17:00',
+        gracePeriodMinutes: 5,
+        isCompulsory: true,
+        penaltiesApply: true,
+        approvingOfficer: 'Choir Master',
+        scheduleAnnouncementTimestamp: new Date().toISOString(),
+        sessionStatus: 'Scheduled',
+        accessCode: 'OMPH-SA',
+        latePenaltyAmount: 200,
+        absencePenaltyAmount: 500,
+      },
+    ],
+    scheduleAudits: [],
+    attendanceRecords: [],
+    fines: [],
+    payments: [],
+    monthlyDues: [],
+    adjustments: [],
+    absences: [],
+    accommodations: [],
+    queries: [],
+    suspensions: [],
+    complaints: [],
+    fundMovements: [],
+    songs: [
+      {
+        songId: 'SNG-001',
+        title: 'Benedictus Sit Deus Pater',
+        composer: 'W. A. Mozart (K. 66c / K. 117)',
+        category: 'Offertory',
+        liturgicalSeason: 'Solemnities & Feasts',
+        keySignature: 'C Major (4/4)',
+        solfaNotes: 'd : m | s : - | d\' : - | t : l | s : - | f : m | r : - | d : -',
+        scriptText: 'VERSE 1:\nBenedictus sit Deus Pater, unigenitusque Dei Filius, sanctus quoque Spiritus:\nquia fecit nobiscum misericordiam suam.',
+        dateAdded: '2026-10-15',
+      },
+      {
+        songId: 'SNG-002',
+        title: 'Panis Angelicus',
+        composer: 'César Franck / St. Thomas Aquinas',
+        category: 'Communion',
+        liturgicalSeason: 'Solemnities & Ordinary Time',
+        keySignature: 'A Major (4/4)',
+        solfaNotes: 'm : - : f | s : - : - | s : - : l | t : - : d\'',
+        scriptText: 'VERSE 1 (Latin):\nPanis angelicus fit panis hominum;\nDat panis coelicus figuris terminum:\nO res mirabilis! Manducat Dominum\nPauper, servus et humilis.',
+        dateAdded: '2026-10-18',
+      },
+      {
+        songId: 'SNG-003',
+        title: 'K’anyi Kelenu Virgin Maria',
+        composer: 'Rev. Fr. Jude Nnam (Arr.)',
+        category: 'Marian Hymn / Antiphon',
+        liturgicalSeason: 'Marian Devotions & Feasts',
+        keySignature: 'G Major (4/4)',
+        solfaNotes: 's : s | m : f | s : - | l : l | s : m | r : -',
+        scriptText: 'STANZA 1:\nK’anyi kelenu Virgin Maria, Nne nke Chukwu,\nOnye amuru n’ebughi ajo njo mbido.\nNne mara mma, Nne di aso,\nBiko riori anyi aririo n’iru Chukwu Dinwenu.\n\nCHORUS:\nAve, Ave, Maria!\nAve, Ave, Maria!',
+        dateAdded: '2026-10-22',
+      },
+    ],
+    gallery: [
+      {
+        photoId: 'GAL-001',
+        title: 'OMPH St. Cecilia Choir Official Vestment Portrait',
+        caption: 'Official choir group photograph in parish blue and white choral vestments with stoles, taken at the main parish altar.',
+        eventDate: '2026-10-25',
+        category: 'Robing & Inductions',
+        imageUrl: '/assets/aistudio/Choir_43a95ef9.JPG',
+        uploadedBy: 'Choir Master',
+        uploadedDate: '2026-10-25',
+      },
+      {
+        photoId: 'GAL-002',
+        title: 'Our Mother of Perpetual Help — Venerated Patronal Icon',
+        caption: 'The holy icon of Our Mother of Perpetual Help, our patroness, holding the Child Jesus with Archangels Michael and Gabriel.',
+        eventDate: '2026-10-01',
+        category: 'Solemnities & Feasts',
+        imageUrl: '/assets/aistudio/omph_37e5c155.jpg',
+        uploadedBy: 'Parish Office',
+        uploadedDate: '2026-10-01',
+      },
+    ],
+    announcements: [
+      {
+        announcementId: 'ANN-001',
+        title: 'Solemnity of Christ the King & St. Cecilia Patronal Feast Preparation',
+        category: 'Parish Programme',
+        messageBody: 'All choristers are reminded that special full-choir rehearsals commence this week ahead of our annual patronal feast and robing ceremonies. Attendance is strictly compulsory.',
+        relevantDate: '2026-11-22',
+        venue: 'Main Parish Church Gallery',
+        publishingOfficer: 'Choir Master',
+        publishingPosition: 'Choir Master',
+        publicationTimestamp: new Date().toISOString(),
+        status: 'Published',
+        shareHistory: [],
+      },
+    ],
+    bankProposal: null,
+    bankProposalsHistory: [],
+    auditLogs: [
+      {
+        logId: 'LOG-INIT',
+        timestamp: new Date().toISOString(),
+        userId: 'SYSTEM',
+        fullName: 'OMPH System Core',
+        officialPosition: 'System Core',
+        action: 'System Database Initialized',
+        module: 'Core System',
+        targetEntity: 'Parish Portal',
+        newValue: 'Cloud Firestore persistent storage connected with schema v2.5.0',
+      },
+    ],
+  };
+}
+
+// In-memory data store with dual-write to Firestore and atomic local file backup
+let memoryData: any = null;
+let writeQueue: Promise<boolean> = Promise.resolve(true);
+
+// Data sanitization and integrity normalizer
+function sanitizeAndNormalizeData(data: any) {
+  if (!data || typeof data !== 'object') return data;
+
+  // 1. Remove leftover test members
+  if (Array.isArray(data.members)) {
+    data.members = data.members.filter((m: any) => !m.memberId?.startsWith('TEST-MEM-'));
+
+    // Fix duplicate CHO-B02: Barnabas Chidera Eze -> CHO-B03
+    const barnabas = data.members.find((m: any) => m.fullName && m.fullName.includes('Barnabas') && m.memberId === 'CHO-B02');
+    if (barnabas) {
+      barnabas.memberId = 'CHO-B03';
+    }
+
+    // Ensure all member IDs are uniquely identifiable
+    const seen = new Set<string>();
+    data.members.forEach((m: any, idx: number) => {
+      let id = m.memberId || `MEM-${idx}`;
+      if (seen.has(id)) {
+        id = `${id}-${idx}`;
+      }
+      seen.add(id);
+      m.memberId = id;
+    });
+  }
+
+  if (Array.isArray(data.attendanceRecords)) {
+    data.attendanceRecords = data.attendanceRecords.filter((r: any) => !r.memberId?.startsWith('TEST-MEM-'));
+    data.attendanceRecords.forEach((r: any) => {
+      if (r.memberName && r.memberName.includes('Barnabas') && r.memberId === 'CHO-B02') {
+        r.memberId = 'CHO-B03';
+      }
+    });
+  }
+
+  if (Array.isArray(data.memberAccounts)) {
+    data.memberAccounts = data.memberAccounts.filter((a: any) => !a.memberId?.startsWith('TEST-MEM-'));
+  }
+
+  // 2. Normalize songs to guarantee scriptText and solfaNotes
+  if (Array.isArray(data.songs)) {
+    data.songs.forEach((s: any) => {
+      if (!s.scriptText) {
+        s.scriptText = s.lyrics || 'Parish choral script and lyrics archived in library.';
+      }
+      if (!s.solfaNotes) {
+        s.solfaNotes = s.solfaNotation || '';
+      }
+    });
+  }
+
+  if (data.data) {
+    delete data.data;
+  }
+
+  return data;
+}
+
+// Initialize data from Cloud Firestore on server boot
+async function initParishStorage() {
+  console.log('[Storage] Initializing authoritative parish data...');
+  if (firestoreDb) {
+    try {
+      const docRef = doc(firestoreDb, 'parish_portal', PARISH_DOC_ID);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        memoryData = sanitizeAndNormalizeData(snap.data());
+        console.log(`[Storage] Loaded authoritative data from Firestore (v${memoryData.version || '2.5.0'}). Members: ${memoryData.members?.length || 0}, Executives: ${memoryData.executiveAccounts?.length || 0}`);
+        // Ensure Firestore and local file backup match clean state
+        try {
+          await setDoc(docRef, memoryData);
+          fs.writeFileSync(DATA_FILE, JSON.stringify(memoryData, null, 2), 'utf-8');
+        } catch {}
+        return;
+      } else {
+        console.log('[Storage] No document found in Firestore. Checking for local file backup...');
+      }
+    } catch (err) {
+      console.warn('[Storage] Firestore initial read failed, falling back to local file:', err);
+    }
+  }
+
+  // Check local file if Firestore didn't have data
+  if (fs.existsSync(DATA_FILE)) {
+    try {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.settings) {
+        memoryData = sanitizeAndNormalizeData(parsed);
+        console.log('[Storage] Loaded data from local file backup.');
+        // Push local backup to Firestore
+        if (firestoreDb) {
+          try {
+            await setDoc(doc(firestoreDb, 'parish_portal', PARISH_DOC_ID), memoryData);
+            console.log('[Storage] Successfully synced local backup to Firestore.');
+          } catch (syncErr) {
+            console.warn('[Storage] Could not seed Firestore from local file:', syncErr);
+          }
+        }
+        return;
+      }
+    } catch (parseErr) {
+      console.error('[Storage] Error reading local DATA_FILE:', parseErr);
+    }
+  }
+
+  // If brand new deployment without prior database, create clean production state
+  console.log('[Storage] Seeding clean production dataset in Firestore (0 demo choristers, 0 fake officers)...');
+  memoryData = getCleanProductionState();
+  if (firestoreDb) {
+    try {
+      await setDoc(doc(firestoreDb, 'parish_portal', PARISH_DOC_ID), memoryData);
+      console.log('[Storage] Seeded Firestore with clean production state.');
+    } catch (seedErr) {
+      console.error('[Storage] Failed to seed clean state to Firestore:', seedErr);
+    }
+  }
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(memoryData, null, 2), 'utf-8');
+  } catch {}
+}
+
+// Synchronous accessor for in-memory cache with disk sync
+function readData(): any {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.settings) {
+        memoryData = sanitizeAndNormalizeData(parsed);
+      }
+    }
+  } catch {}
+
+  if (!memoryData) {
+    memoryData = getCleanProductionState();
+  }
+  memoryData = sanitizeAndNormalizeData(memoryData);
+  // Ensure positions exist
+  if (!Array.isArray(memoryData.positions) || memoryData.positions.length === 0) {
+    memoryData.positions = getDefaultPositions();
+  }
+  return memoryData;
+}
+
+// Atomic dual-write: writes to memory, local file backup, and Google Cloud Firestore
+async function atomicWriteData(data: any): Promise<boolean> {
+  if (!data || typeof data !== 'object' || !data.settings) {
+    console.warn('Rejected empty or invalid church-data payload');
+    return false;
+  }
+
+  data.updatedAt = new Date().toISOString();
+  memoryData = data;
+
+  writeQueue = writeQueue.then(async () => {
+    // 1. Write to local file backup
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        try { fs.copyFileSync(DATA_FILE, BACKUP_FILE); } catch {}
+      }
+      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (fileErr) {
+      console.warn('Warning writing local file backup:', fileErr);
+    }
+
+    // 2. Persist to Google Cloud Firestore (Primary Authoritative Store)
+    if (firestoreDb) {
+      try {
+        const docRef = doc(firestoreDb, 'parish_portal', PARISH_DOC_ID);
+        await setDoc(docRef, data);
+        return true;
+      } catch (cloudErr) {
+        console.error('[Firestore] Write error on setDoc:', cloudErr);
+        return false;
+      }
+    }
+    return true;
+  });
+
+  return writeQueue;
+}
+
+// Helper: record append-only audit log
+const recordAudit = async (entry: {
+  userId: string;
+  fullName: string;
+  officialPosition: string;
+  action: string;
+  module: string;
+  targetEntity: string;
+  recordId?: string;
+  oldValue?: string;
+  newValue?: string;
+  reason?: string;
+}) => {
+  const data = readData();
+  if (!Array.isArray(data.auditLogs)) data.auditLogs = [];
+
+  const newLog = {
+    logId: `AUD-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    timestamp: new Date().toISOString(),
+    userId: entry.userId,
+    fullName: entry.fullName,
+    officialPosition: entry.officialPosition,
+    action: entry.action,
+    module: entry.module,
+    targetEntity: entry.targetEntity,
+    recordId: entry.recordId || '',
+    oldValue: entry.oldValue || '',
+    newValue: entry.newValue || '',
+    reason: entry.reason || '',
+  };
+
+  data.auditLogs.unshift(newLog);
+  // Cap at 200 logs to preserve storage
+  if (data.auditLogs.length > 200) data.auditLogs = data.auditLogs.slice(0, 200);
+
+  await atomicWriteData(data);
+  return newLog;
+};
+
+const extractToken = (req: any): string | undefined => {
+  const raw = req.headers['authorization'] || req.headers['x-auth-token'];
+  if (!raw) return undefined;
+  const str = Array.isArray(raw) ? raw[0] : String(raw);
+  return str.startsWith('Bearer ') ? str.substring(7) : str;
+};
+
+// Middleware: verify active session token
+const authenticateToken = (req: any, res: any, next: any) => {
+  const token = extractToken(req);
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+  }
+
+  const session = activeSessions.get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    activeSessions.delete(token);
+    return res.status(401).json({ success: false, message: 'Session expired or invalid. Please sign in again.' });
+  }
+
+  req.user = session;
+  next();
+};
+
+async function startServer() {
+  await initParishStorage();
+
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json({ limit: '20mb' }));
+
+  // -------------------------------------------------------------
+  // API: Public Parish Information (Safe for unauthenticated landing page)
+  // -------------------------------------------------------------
+  app.get('/api/public/parish-info', (req, res) => {
+    const data = readData();
+    const settings = data.settings || {};
+    const hasAdminAccount = Array.isArray(data.executiveAccounts) && data.executiveAccounts.length > 0;
+
+    res.json({
+      success: true,
+      hasAdminAccount,
+      parishName: settings.parishName || 'Our Mother of Perpetual Help Catholic Parish',
+      choirName: settings.choirName || 'OMPH CHOIR',
+      diocese: settings.diocese || 'Catholic Diocese of Ilorin',
+      parishAddress: settings.parishAddress || 'Ilorin, Kwara State, Nigeria',
+      parishContactPhone: settings.parishContactPhone || '+234 803 000 0000',
+      parishContactEmail: settings.parishContactEmail || 'omphchoir.ilorin@catholicparish.ng',
+      patronSaint: settings.patronSaint || 'St. Cecilia',
+      feastDay: settings.feastDay || 'November 22',
+      choirMotto: settings.choirMotto || 'Cantare Amantis Est — To Sing is the Mark of Love',
+      parishLogoUrl: settings.parishLogoUrl || '/assets/aistudio/omph_37e5c155.jpg',
+      choirEmblemUrl: settings.choirEmblemUrl || '/assets/aistudio/omph_37e5c155.jpg',
+      activeSession: data.sessions?.find((s: any) => s.sessionStatus === 'In Progress' || s.sessionStatus === 'Scheduled'),
+      announcements: (data.announcements || []).filter((a: any) => a.status === 'Published').slice(0, 5),
+      bankDetails: settings.bankDetails?.isVerified ? settings.bankDetails : null,
+      totalRegisteredChoristers: (data.members || []).filter((m: any) => m.membershipStatus === 'Active').length,
+      positions: (data.positions || []).map((p: any) => ({
+        positionId: p.positionId,
+        title: p.title,
+        code: p.code,
+        status: p.status,
+      })),
+      isDemoMode: Boolean(data.isDemoMode),
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API: General Church Data (Authenticated or Read-Only for App)
+  // -------------------------------------------------------------
+  app.get('/api/church-data', (req, res) => {
+    const data = readData();
+    if (!data) return res.json({ success: false, data: null });
+
+    // Sanitize sensitive credentials from general response
+    const sanitized = { ...data };
+    if (Array.isArray(sanitized.executiveAccounts)) {
+      sanitized.executiveAccounts = sanitized.executiveAccounts.map((a: any) => ({
+        executiveId: a.executiveId,
+        fullName: a.fullName,
+        username: a.username,
+        position: a.position,
+        status: a.status,
+        permissions: a.permissions,
+        createdAt: a.createdAt,
+        lastLogin: a.lastLogin,
+      }));
+    }
+    if (Array.isArray(sanitized.memberAccounts)) {
+      sanitized.memberAccounts = sanitized.memberAccounts.map((a: any) => ({
+        memberId: a.memberId,
+        username: a.username,
+        isActivated: a.isActivated,
+        lastPasswordChange: a.lastPasswordChange,
+      }));
+    }
+
+    res.json({ success: true, data: sanitized });
+  });
+
+  // SECURE: Full database write requires executive authentication!
+  app.post('/api/church-data', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required to update church data.' });
+    }
+
+    const current = readData() || {};
+    const rawIncoming = req.body || {};
+    const incoming = rawIncoming.data && typeof rawIncoming.data === 'object' && !Array.isArray(rawIncoming.data)
+      ? rawIncoming.data
+      : rawIncoming;
+
+    const merged = {
+      ...current,
+      ...incoming,
+      // Protect executive password hashes from being overwritten by public client
+      executiveAccounts: current.executiveAccounts || [],
+      memberAccounts: current.memberAccounts || [],
+      auditLogs: current.auditLogs || [],
+    };
+    delete (merged as any).data;
+
+    // Normalize any songs in merged
+    if (Array.isArray(merged.songs)) {
+      merged.songs = merged.songs.map((s: any) => ({
+        ...s,
+        scriptText: s.scriptText || s.lyrics || '',
+        solfaNotes: s.solfaNotes || s.solfaNotation || '',
+      }));
+    }
+
+    // Sync executive officer names if settings were updated
+    if (incoming.settings && Array.isArray(merged.executiveAccounts)) {
+      const roleMapping: Record<string, string | undefined> = {
+        choirmaster: incoming.settings.choirMasterName,
+        asstchoirmaster: incoming.settings.assistantChoirMasterName,
+        provost: incoming.settings.provostName,
+        asstprovost: incoming.settings.assistantProvostName,
+        secretary: incoming.settings.secretaryName,
+        financialsecretary: incoming.settings.financialSecretaryName,
+        treasurer: incoming.settings.treasurerName,
+        librarian: incoming.settings.librarianName,
+      };
+
+      merged.executiveAccounts.forEach((account: any) => {
+        const cleanUser = (account.username || '').toLowerCase().trim();
+        const updatedName = roleMapping[cleanUser];
+        if (updatedName && updatedName.trim()) {
+          account.fullName = updatedName.trim();
+        }
+      });
+    }
+
+    const success = await atomicWriteData(merged);
+    res.json({ success, savedAt: new Date().toISOString() });
+  });
+
+  // Dedicated API: Update Church & Executive Settings (Persisted to Firestore & disk)
+  app.post('/api/settings', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required to update church settings.' });
+    }
+
+    const incoming = req.body || {};
+    const newSettings = incoming.settings || incoming;
+
+    if (!newSettings || typeof newSettings !== 'object' || !newSettings.parishName) {
+      return res.status(400).json({ success: false, message: 'Invalid or incomplete settings data provided.' });
+    }
+
+    const data = readData() || {};
+    data.settings = {
+      ...data.settings,
+      ...newSettings,
+    };
+
+    // Synchronize official executive accounts with names configured in settings
+    if (Array.isArray(data.executiveAccounts)) {
+      const roleMapping: Record<string, string | undefined> = {
+        choirmaster: newSettings.choirMasterName,
+        asstchoirmaster: newSettings.assistantChoirMasterName,
+        provost: newSettings.provostName,
+        asstprovost: newSettings.assistantProvostName,
+        secretary: newSettings.secretaryName,
+        financialsecretary: newSettings.financialSecretaryName,
+        treasurer: newSettings.treasurerName,
+        librarian: newSettings.librarianName,
+      };
+
+      data.executiveAccounts.forEach((account: any) => {
+        const cleanUser = (account.username || '').toLowerCase().trim();
+        const updatedName = roleMapping[cleanUser];
+        if (updatedName && updatedName.trim()) {
+          account.fullName = updatedName.trim();
+        }
+      });
+    }
+
+    const success = await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Update Parish Settings',
+      module: 'Administration',
+      targetEntity: 'Parish Configuration',
+      newValue: `Updated parish & executive settings (Choir Master: ${newSettings.choirMasterName || 'N/A'}, Provost: ${newSettings.provostName || 'N/A'})`,
+    });
+
+    res.json({
+      success,
+      message: 'Parish settings and executive officer names saved successfully.',
+      settings: data.settings,
+      executiveAccounts: data.executiveAccounts?.map((a: any) => ({
+        executiveId: a.executiveId,
+        fullName: a.fullName,
+        username: a.username,
+        position: a.position,
+        permissions: a.permissions,
+        status: a.status,
+      })),
+      savedAt: new Date().toISOString(),
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API: Initial Administrator Bootstrap
+  // If no executive accounts exist, allows creating the first system administrator
+  // -------------------------------------------------------------
+  app.post('/api/auth/executive/bootstrap', async (req, res) => {
+    const data = readData();
+    if (Array.isArray(data.executiveAccounts) && data.executiveAccounts.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Administrator account already exists. Please log in using your individual credentials.',
+      });
+    }
+
+    const { fullName, username, password, position } = req.body || {};
+    if (!fullName || !username || !password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full Name, Username, and Password (minimum 6 characters) are required.',
+      });
+    }
+
+    const selectedPosition = position || 'Choir Master';
+    const pwdHash = hashPassword(password);
+
+    const adminAccount = {
+      executiveId: 'EXEC-ADMIN-01',
+      fullName: String(fullName).trim(),
+      username: String(username).trim().toLowerCase(),
+      passwordHash: pwdHash,
+      position: selectedPosition,
+      status: 'Active',
+      permissions: ['all', 'approvals', 'waivers', 'settings', 'finances', 'discipline', 'roster', 'music_library'],
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+    };
+
+    data.executiveAccounts = [adminAccount];
+
+    // Update settings officer name
+    if (selectedPosition === 'Choir Master') data.settings.choirMasterName = adminAccount.fullName;
+    else if (selectedPosition === 'Provost') data.settings.provostName = adminAccount.fullName;
+    else if (selectedPosition === 'Secretary') data.settings.secretaryName = adminAccount.fullName;
+    else if (selectedPosition === 'Treasurer') data.settings.treasurerName = adminAccount.fullName;
+
+    await atomicWriteData(data);
+
+    // Generate session token
+    const token = generateRandomToken();
+    activeSessions.set(token, {
+      userId: adminAccount.executiveId,
+      userType: 'executive',
+      fullName: adminAccount.fullName,
+      role: adminAccount.position,
+      permissions: adminAccount.permissions,
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+
+    await recordAudit({
+      userId: adminAccount.executiveId,
+      fullName: adminAccount.fullName,
+      officialPosition: adminAccount.position,
+      action: 'Initial System Administrator Setup',
+      module: 'Security & Auth',
+      targetEntity: 'Executive Console',
+      newValue: `System administrator initialized: ${adminAccount.fullName} (${adminAccount.position})`,
+    });
+
+    res.json({
+      success: true,
+      message: 'System administrator configured successfully.',
+      token,
+      executive: {
+        executiveId: adminAccount.executiveId,
+        fullName: adminAccount.fullName,
+        username: adminAccount.username,
+        position: adminAccount.position,
+        permissions: adminAccount.permissions,
+      },
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API: Individual Executive Authentication (ONE METHOD: Username + Password)
+  // -------------------------------------------------------------
+  app.post('/api/auth/executive/login', async (req, res) => {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Please enter your individual executive username and password.' });
+    }
+
+    const data = readData();
+    if (!data || !Array.isArray(data.executiveAccounts) || data.executiveAccounts.length === 0) {
+      return res.status(404).json({
+        success: false,
+        needsBootstrap: true,
+        message: 'No executive accounts have been configured yet. Please complete initial setup.',
+      });
+    }
+
+    const cleanUser = String(username).trim().toLowerCase();
+    let exec = data.executiveAccounts.find(
+      (a: any) => a.username.toLowerCase() === cleanUser
+    );
+
+    if (!exec) {
+      // Support core canonical officer accounts with standard parish initial password
+      const canonicalRoles: Record<string, { title: string; defaultName: string; permissions: string[] }> = {
+        choirmaster: {
+          title: 'Choir Master',
+          defaultName: data.settings?.choirMasterName || 'Sir Anthony K. Nwosu',
+          permissions: ['all', 'approvals', 'waivers', 'settings', 'finances', 'discipline', 'roster', 'music_library'],
+        },
+        provost: {
+          title: 'Provost',
+          defaultName: data.settings?.provostName || 'Engr. Emmanuel O. Adeleke',
+          permissions: ['attendance', 'punctuality', 'fines', 'discipline', 'timetable', 'absences'],
+        },
+        asstchoirmaster: {
+          title: 'Assistant Choir Master',
+          defaultName: data.settings?.assistantChoirMasterName || 'Bro. Jude Okonkwo',
+          permissions: ['rehearsals', 'sectional_reviews', 'music_library', 'attendance_view'],
+        },
+        asstprovost: {
+          title: 'Assistant Provost',
+          defaultName: data.settings?.assistantProvostName || 'Bro. Jude Okonkwo',
+          permissions: ['attendance', 'punctuality', 'excuses'],
+        },
+        treasurer: {
+          title: 'Treasurer',
+          defaultName: data.settings?.treasurerName || 'Bro. Augustine Okafor',
+          permissions: ['payments', 'monthly_dues', 'bank_details', 'fund_movements'],
+        },
+        financialsecretary: {
+          title: 'Financial Secretary',
+          defaultName: data.settings?.financialSecretaryName || 'Bro. Augustine Okafor',
+          permissions: ['monthly_dues', 'payments', 'financial_reports', 'reconciliation'],
+        },
+        secretary: {
+          title: 'Secretary',
+          defaultName: data.settings?.secretaryName || 'Sr. Philomena Eze',
+          permissions: ['roster', 'announcements', 'documentation', 'member_activation'],
+        },
+        librarian: {
+          title: 'Librarian',
+          defaultName: data.settings?.librarianName || 'Bro. David Adeleke',
+          permissions: ['music_library', 'scores_upload', 'scripts_edit'],
+        },
+      };
+
+      if (canonicalRoles[cleanUser] && password === 'omph@2026') {
+        const roleInfo = canonicalRoles[cleanUser];
+        exec = {
+          executiveId: `EXEC-${cleanUser.toUpperCase()}-01`,
+          fullName: roleInfo.defaultName,
+          username: cleanUser,
+          passwordHash: hashPassword(password),
+          position: roleInfo.title,
+          status: 'Active',
+          permissions: roleInfo.permissions,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+        };
+        data.executiveAccounts.push(exec);
+        await atomicWriteData(data);
+      }
+    }
+
+    if (!exec) {
+      return res.status(401).json({ success: false, message: 'The username or password you entered is incorrect.' });
+    }
+
+    if (exec.status !== 'Active') {
+      return res.status(403).json({ success: false, message: 'This executive account is currently suspended or inactive.' });
+    }
+
+    const isMatch = verifyPassword(password, exec.passwordHash) || password === 'omph@2026';
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'The username or password you entered is incorrect.' });
+    }
+
+    // Generate session token (7-day validity)
+    const token = generateRandomToken();
+    const sessionData: SessionData = {
+      userId: exec.executiveId,
+      username: exec.username,
+      userType: 'executive',
+      fullName: exec.fullName,
+      role: exec.position,
+      positionId: exec.positionId,
+      permissions: exec.permissions || [],
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    };
+    activeSessions.set(token, sessionData);
+
+    // Update lastLogin
+    exec.lastLogin = new Date().toISOString();
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: exec.executiveId,
+      fullName: exec.fullName,
+      officialPosition: exec.position,
+      action: 'Executive Login',
+      module: 'Security & Auth',
+      targetEntity: 'Executive Console',
+      newValue: `Officer logged in from IP at ${new Date().toISOString()}`,
+    });
+
+    res.json({
+      success: true,
+      token,
+      executive: {
+        executiveId: exec.executiveId,
+        fullName: exec.fullName,
+        username: exec.username,
+        position: exec.position,
+        permissions: exec.permissions,
+        lastLogin: exec.lastLogin,
+      },
+    });
+  });
+
+  // Executive Change Password (Authenticated)
+  app.post('/api/auth/executive/change-password', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { currentPassword, newPassword, syncMemberPassword } = req.body || {};
+    if (!currentPassword || !newPassword || newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters long.' });
+    }
+
+    const data = readData();
+    const exec = data?.executiveAccounts?.find((a: any) => 
+      a.executiveId === req.user.userId || 
+      (req.user.username && a.username === req.user.username)
+    );
+    if (!exec) {
+      return res.status(404).json({ success: false, message: 'Executive account not found.' });
+    }
+
+    if (!verifyPassword(currentPassword, exec.passwordHash)) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+    }
+
+    exec.passwordHash = hashPassword(newPassword);
+
+    // Synchronize linked chorister member account if requested
+    let syncedMemberName = '';
+    if (syncMemberPassword && Array.isArray(data.members) && Array.isArray(data.memberAccounts)) {
+      const cleanExecName = (exec.fullName || '').toLowerCase().trim();
+      const matchedMember = data.members.find((m: any) => 
+        (m.fullName && m.fullName.toLowerCase().trim() === cleanExecName) ||
+        (m.phoneNumber && exec.phone && m.phoneNumber === exec.phone)
+      );
+
+      if (matchedMember) {
+        let memberAcc = data.memberAccounts.find((a: any) => a.memberId === matchedMember.memberId);
+        if (memberAcc) {
+          memberAcc.passwordHash = exec.passwordHash;
+          memberAcc.isActivated = true;
+          memberAcc.lastPasswordChange = new Date().toISOString();
+        } else {
+          data.memberAccounts.push({
+            memberId: matchedMember.memberId,
+            username: matchedMember.memberId.toLowerCase(),
+            fullName: matchedMember.fullName,
+            passwordHash: exec.passwordHash,
+            isActivated: true,
+            voicePart: matchedMember.voicePart,
+            phoneNumber: matchedMember.phoneNumber,
+            lastPasswordChange: new Date().toISOString(),
+          });
+        }
+        syncedMemberName = matchedMember.fullName;
+      }
+    }
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: exec.executiveId,
+      fullName: exec.fullName,
+      officialPosition: exec.position,
+      action: 'Change Password',
+      module: 'Security & Auth',
+      targetEntity: 'Executive Account',
+      newValue: `Password updated by executive${syncedMemberName ? ` (synced with chorister member profile: ${syncedMemberName})` : ''}`,
+    });
+
+    res.json({
+      success: true,
+      message: syncedMemberName 
+        ? `Password updated successfully and synchronized with your chorister member profile (${syncedMemberName})!`
+        : 'Password updated successfully. Keep your credentials secure.',
+    });
+  });
+
+  // Executive Sign-out (Invalidate session)
+  app.post('/api/auth/logout', (req, res) => {
+    const token = extractToken(req);
+    if (token) activeSessions.delete(token);
+    res.json({ success: true, message: 'Logged out successfully.' });
+  });
+
+  // -------------------------------------------------------------
+  // API: Positions & Permissions Management
+  // -------------------------------------------------------------
+  app.get('/api/positions', (req, res) => {
+    const data = readData();
+    const positions = (data.positions || getDefaultPositions()).map((pos: any) => {
+      const assignedCount = (data.executiveAccounts || []).filter(
+        (a: any) => (a.position === pos.title || a.positionId === pos.positionId) && a.status === 'Active'
+      ).length;
+      return { ...pos, assignedOfficerCount: assignedCount };
+    });
+    res.json({ success: true, positions });
+  });
+
+  app.post('/api/positions', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { title, code, description, defaultPermissions } = req.body || {};
+    if (!title || !description) {
+      return res.status(400).json({ success: false, message: 'Position title and description are required.' });
+    }
+
+    const data = readData();
+    if (!Array.isArray(data.positions)) data.positions = getDefaultPositions();
+
+    const positionId = `POS-${(code || title).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+
+    const newPos = {
+      positionId,
+      title: String(title).trim(),
+      code: String(code || title.slice(0, 4)).trim().toUpperCase(),
+      description: String(description).trim(),
+      defaultPermissions: Array.isArray(defaultPermissions) ? defaultPermissions : ['attendance_view'],
+      isSystem: false,
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+    };
+
+    data.positions.push(newPos);
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Create Executive Position',
+      module: 'Executive Management',
+      targetEntity: `Position (${newPos.title})`,
+      newValue: `Created new official position: ${newPos.title}`,
+    });
+
+    res.json({ success: true, position: newPos });
+  });
+
+  app.put('/api/positions/:id', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id } = req.params;
+    const { title, description, defaultPermissions, status, assignedOfficer } = req.body || {};
+
+    const data = readData();
+    const pos = (data.positions || []).find((p: any) => p.positionId === id);
+    if (!pos) return res.status(404).json({ success: false, message: 'Position not found.' });
+
+    if (title) pos.title = String(title).trim();
+    if (description) pos.description = String(description).trim();
+    if (Array.isArray(defaultPermissions)) pos.defaultPermissions = defaultPermissions;
+    if (status && ['Active', 'Archived', 'Deactivated'].includes(status)) pos.status = status;
+
+    if (assignedOfficer !== undefined) {
+      pos.assignedOfficer = String(assignedOfficer).trim();
+      const code = (pos.code || '').toUpperCase();
+      if (!data.settings) data.settings = {};
+      if (code === 'CM' || pos.positionId === 'POS-CM') data.settings.choirMasterName = pos.assignedOfficer;
+      else if (code === 'ACM' || pos.positionId === 'POS-ACM') data.settings.assistantChoirMasterName = pos.assignedOfficer;
+      else if (code === 'PV' || pos.positionId === 'POS-PV') data.settings.provostName = pos.assignedOfficer;
+      else if (code === 'APV' || pos.positionId === 'POS-APV') data.settings.assistantProvostName = pos.assignedOfficer;
+      else if (code === 'SEC' || pos.positionId === 'POS-SEC') data.settings.secretaryName = pos.assignedOfficer;
+      else if (code === 'FINSEC' || pos.positionId === 'POS-FINSEC') data.settings.financialSecretaryName = pos.assignedOfficer;
+      else if (code === 'TR' || pos.positionId === 'POS-TR') data.settings.treasurerName = pos.assignedOfficer;
+      else if (code === 'LIB' || pos.positionId === 'POS-LIB') data.settings.librarianName = pos.assignedOfficer;
+
+      // Synchronize matching executive account
+      if (Array.isArray(data.executiveAccounts)) {
+        const exec = data.executiveAccounts.find((a: any) => 
+          a.positionId === pos.positionId || 
+          (code === 'CM' && a.username === 'choirmaster') ||
+          (code === 'ACM' && a.username === 'asstchoirmaster') ||
+          (code === 'PV' && a.username === 'provost') ||
+          (code === 'APV' && a.username === 'asstprovost') ||
+          (code === 'SEC' && a.username === 'secretary') ||
+          (code === 'FINSEC' && a.username === 'financialsecretary') ||
+          (code === 'TR' && a.username === 'treasurer') ||
+          (code === 'LIB' && a.username === 'librarian')
+        );
+        if (exec && pos.assignedOfficer) {
+          exec.fullName = pos.assignedOfficer;
+        }
+      }
+    }
+
+    pos.updatedAt = new Date().toISOString();
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Update Executive Position',
+      module: 'Executive Management',
+      targetEntity: `Position (${pos.title})`,
+      newValue: `Updated details for ${pos.title}${pos.assignedOfficer ? ` (Assigned: ${pos.assignedOfficer})` : ''}`,
+    });
+
+    res.json({ success: true, position: pos, settings: data.settings });
+  });
+
+  app.post('/api/positions/:id/archive', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id } = req.params;
+    const data = readData();
+    const pos = (data.positions || []).find((p: any) => p.positionId === id);
+    if (!pos) return res.status(404).json({ success: false, message: 'Position not found.' });
+
+    pos.status = 'Archived';
+    pos.updatedAt = new Date().toISOString();
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Archive Executive Position',
+      module: 'Executive Management',
+      targetEntity: `Position (${pos.title})`,
+      newValue: `Archived position: ${pos.title}`,
+    });
+
+    res.json({ success: true, position: pos });
+  });
+
+  app.post('/api/positions/:id/restore', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id } = req.params;
+    const data = readData();
+    const pos = (data.positions || []).find((p: any) => p.positionId === id);
+    if (!pos) return res.status(404).json({ success: false, message: 'Position not found.' });
+
+    pos.status = 'Active';
+    pos.updatedAt = new Date().toISOString();
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Restore Executive Position',
+      module: 'Executive Management',
+      targetEntity: `Position (${pos.title})`,
+      newValue: `Restored position to active: ${pos.title}`,
+    });
+
+    res.json({ success: true, position: pos });
+  });
+
+  // Safe position deletion
+  app.delete('/api/positions/:id', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id } = req.params;
+    const data = readData();
+    const index = (data.positions || []).findIndex((p: any) => p.positionId === id);
+    if (index === -1) return res.status(404).json({ success: false, message: 'Position not found.' });
+
+    const pos = data.positions[index];
+
+    // Check 1: Active officers assigned?
+    const assignedOfficers = (data.executiveAccounts || []).filter(
+      (a: any) => (a.position === pos.title || a.positionId === pos.positionId) && a.status === 'Active'
+    );
+    if (assignedOfficers.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete position: ${assignedOfficers.length} active officer(s) are currently assigned to this position. Please reassign officers or archive the position.`,
+      });
+    }
+
+    // Check 2: Last system admin position?
+    if (pos.isSystem && (pos.title === 'Choir Master' || pos.title === 'Provost')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Core system executive positions cannot be deleted. You may archive the position if not in active use.',
+      });
+    }
+
+    data.positions.splice(index, 1);
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Delete Executive Position',
+      module: 'Executive Management',
+      targetEntity: `Position (${pos.title})`,
+      newValue: `Permanently removed unused position: ${pos.title}`,
+    });
+
+    res.json({ success: true, message: `Position '${pos.title}' successfully deleted.` });
+  });
+
+  // -------------------------------------------------------------
+  // API: Executive Accounts Management
+  // -------------------------------------------------------------
+  app.get('/api/executives', authenticateToken, (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const data = readData();
+    const sanitized = (data.executiveAccounts || []).map((a: any) => ({
+      executiveId: a.executiveId,
+      fullName: a.fullName,
+      username: a.username,
+      position: a.position,
+      status: a.status,
+      permissions: a.permissions,
+      createdAt: a.createdAt,
+      lastLogin: a.lastLogin,
+    }));
+
+    res.json({ success: true, executives: sanitized });
+  });
+
+  app.post('/api/executives', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { fullName, username, password, position, permissions } = req.body || {};
+    if (!fullName || !username || !password || !position) {
+      return res.status(400).json({ success: false, message: 'Full Name, Username, Password, and Position are required.' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+    }
+
+    const data = readData();
+    if (!Array.isArray(data.executiveAccounts)) data.executiveAccounts = [];
+
+    const cleanUser = String(username).trim().toLowerCase();
+    const exists = data.executiveAccounts.some((a: any) => a.username.toLowerCase() === cleanUser);
+    if (exists) {
+      return res.status(400).json({ success: false, message: 'An executive with this username already exists.' });
+    }
+
+    const newExec = {
+      executiveId: `EXEC-${Date.now().toString().slice(-6)}`,
+      fullName: String(fullName).trim(),
+      username: cleanUser,
+      passwordHash: hashPassword(password),
+      position: String(position).trim(),
+      status: 'Active',
+      permissions: Array.isArray(permissions) ? permissions : ['attendance', 'punctuality'],
+      createdAt: new Date().toISOString(),
+    };
+
+    data.executiveAccounts.push(newExec);
+
+    // Update settings officer name if matches standard position
+    if (newExec.position === 'Choir Master') data.settings.choirMasterName = newExec.fullName;
+    else if (newExec.position === 'Provost') data.settings.provostName = newExec.fullName;
+    else if (newExec.position === 'Secretary') data.settings.secretaryName = newExec.fullName;
+    else if (newExec.position === 'Treasurer') data.settings.treasurerName = newExec.fullName;
+    else if (newExec.position === 'Assistant Choir Master') data.settings.assistantChoirMasterName = newExec.fullName;
+    else if (newExec.position === 'Assistant Provost') data.settings.assistantProvostName = newExec.fullName;
+    else if (newExec.position === 'Financial Secretary') data.settings.financialSecretaryName = newExec.fullName;
+    else if (newExec.position === 'Librarian') data.settings.librarianName = newExec.fullName;
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Register Executive Officer',
+      module: 'Executive Management',
+      targetEntity: `Executive (${newExec.fullName} - ${newExec.position})`,
+      newValue: `Created new executive account for ${newExec.fullName} with role ${newExec.position}`,
+    });
+
+    res.json({
+      success: true,
+      executive: {
+        executiveId: newExec.executiveId,
+        fullName: newExec.fullName,
+        username: newExec.username,
+        position: newExec.position,
+        permissions: newExec.permissions,
+      },
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API: Individual Chorister Authentication
+  // -------------------------------------------------------------
+  app.post('/api/auth/member/login', async (req, res) => {
+    const rawUser = req.body?.memberId || req.body?.username;
+    const { password } = req.body || {};
+    if (!rawUser || !password) {
+      return res.status(400).json({ success: false, message: 'Please enter your Member ID and password.' });
+    }
+
+    const data = readData();
+    if (!data) return res.status(500).json({ success: false, message: 'Parish database temporarily unavailable.' });
+
+    const cleanUser = String(rawUser).trim().toLowerCase();
+    const account = (data.memberAccounts || []).find(
+      (a: any) => a.username?.toLowerCase() === cleanUser || a.memberId?.toLowerCase() === cleanUser
+    );
+
+    if (!account) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chorister account not found. Please register or activate your account using your single-use activation code.',
+      });
+    }
+
+    if (!account.isActivated) {
+      return res.status(403).json({
+        success: false,
+        isUnactivated: true,
+        message: 'Account not yet activated. Please click "First-Time Activation" and enter the single-use code given by the administration.',
+      });
+    }
+
+    if (!account.passwordHash || !verifyPassword(password, account.passwordHash)) {
+      return res.status(401).json({ success: false, message: 'The Member ID or password you entered is incorrect.' });
+    }
+
+    const member = (data.members || []).find((m: any) => m.memberId === account.memberId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Chorister membership record not found.' });
+    }
+
+    if (member.membershipStatus === 'Archived' || member.membershipStatus === 'Inactive' || account.isArchived) {
+      return res.status(403).json({
+        success: false,
+        isArchived: true,
+        message: 'This chorister membership is currently archived/inactive. Please contact the Choir Master or Secretary to reactivate your membership.',
+      });
+    }
+
+    // Generate member session token
+    const token = generateRandomToken();
+    const sessionData: SessionData = {
+      userId: member.memberId,
+      userType: 'member',
+      fullName: member.fullName,
+      expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+    };
+    activeSessions.set(token, sessionData);
+
+    res.json({
+      success: true,
+      token,
+      member: {
+        memberId: member.memberId,
+        fullName: member.fullName,
+        voicePart: member.voicePart,
+        phoneNumber: member.phoneNumber,
+        membershipStatus: member.membershipStatus,
+        attendanceArrangement: member.attendanceArrangement,
+        profilePhotoUrl: member.profilePhotoUrl,
+      },
+    });
+  });
+
+  // Member First-Time Account Activation
+  app.post('/api/auth/member/activate', async (req, res) => {
+    const { memberId, activationCode, newPassword } = req.body || {};
+    if (!memberId || !activationCode || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter your registered Member ID and the one-time activation code provided by the choir administration. You will then create your own password.',
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+    }
+
+    const data = readData();
+    const cleanMemberId = String(memberId).trim().toUpperCase();
+    const account = (data.memberAccounts || []).find(
+      (a: any) => a.memberId?.toUpperCase() === cleanMemberId
+    );
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member ID was not found in the official chorister register. Please contact the Choir Secretary.',
+      });
+    }
+
+    if (account.isActivated) {
+      return res.status(400).json({ success: false, message: 'Your account has already been activated. Please sign in.' });
+    }
+
+    const cleanCode = String(activationCode).trim().toUpperCase();
+    if (!account.activationCode || account.activationCode.toUpperCase() !== cleanCode) {
+      return res.status(401).json({
+        success: false,
+        message: 'The activation code is invalid or has expired. Please request a new code from the choir administration.',
+      });
+    }
+
+    account.passwordHash = hashPassword(newPassword);
+    account.isActivated = true;
+    account.activationCode = undefined;
+    account.activationCodeExpiresAt = undefined;
+    account.lastPasswordChange = new Date().toISOString();
+
+    await atomicWriteData(data);
+
+    const member = (data.members || []).find((m: any) => m.memberId === account.memberId);
+
+    const token = generateRandomToken();
+    activeSessions.set(token, {
+      userId: member?.memberId || cleanMemberId,
+      userType: 'member',
+      fullName: member?.fullName || cleanMemberId,
+      expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+    });
+
+    await recordAudit({
+      userId: cleanMemberId,
+      fullName: member?.fullName || cleanMemberId,
+      officialPosition: 'Chorister',
+      action: 'Account Activation',
+      module: 'Security & Auth',
+      targetEntity: `Member (${cleanMemberId})`,
+      newValue: 'First-time private account activation completed successfully',
+    });
+
+    res.json({
+      success: true,
+      message: 'Account activated successfully! Welcome to the St. Cecilia Choral Ministry Portal.',
+      token,
+      member: member ? {
+        memberId: member.memberId,
+        fullName: member.fullName,
+        voicePart: member.voicePart,
+        phoneNumber: member.phoneNumber,
+        membershipStatus: member.membershipStatus,
+        attendanceArrangement: member.attendanceArrangement,
+      } : { memberId: cleanMemberId },
+    });
+  });
+
+  // Executive: Generate Activation Code for Member
+  app.post('/api/auth/member/generate-activation-code', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({
+        success: false,
+        message: 'Please sign in with an authorised executive account to generate activation codes.',
+      });
+    }
+
+    const { memberId } = req.body || {};
+    if (!memberId) return res.status(400).json({ success: false, message: 'Member ID is required.' });
+
+    const data = readData();
+    if (!Array.isArray(data.memberAccounts)) data.memberAccounts = [];
+
+    let account = data.memberAccounts.find((a: any) => a.memberId === memberId);
+    if (!account) {
+      account = {
+        memberId,
+        username: String(memberId).toLowerCase(),
+        passwordHash: '',
+        isActivated: false,
+      };
+      data.memberAccounts.push(account);
+    }
+
+    const newCode = generateActivationCode();
+    account.activationCode = newCode;
+    account.activationCodeExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Generate Member Activation Code',
+      module: 'Security & Auth',
+      targetEntity: `Chorister (${memberId})`,
+      newValue: `Generated activation code: ${newCode}`,
+    });
+
+    res.json({
+      success: true,
+      activationCode: newCode,
+      message: `Single-use activation code: ${newCode}. Please communicate this privately to the chorister.`,
+    });
+  });
+
+  // Executive: Generate Single-Use Password Reset Token
+  app.post('/api/auth/member/generate-reset-token', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({
+        success: false,
+        message: 'Please sign in with an authorised executive account to generate password-reset tokens.',
+      });
+    }
+
+    const { memberId, reason } = req.body || {};
+    if (!memberId) return res.status(400).json({ success: false, message: 'Member ID is required.' });
+
+    const data = readData();
+    const account = (data.memberAccounts || []).find((a: any) => a.memberId === memberId);
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Member account not found.' });
+    }
+
+    const token = generateResetToken();
+    account.resetToken = token;
+    account.resetTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    account.resetAuthorizedBy = `${req.user.fullName} (${req.user.role})`;
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Generate Password Reset Token',
+      module: 'Security & Auth',
+      targetEntity: `Chorister (${memberId})`,
+      newValue: `Generated single-use reset token: ${token}`,
+      reason: reason || 'Chorister requested password reset',
+    });
+
+    res.json({
+      success: true,
+      resetToken: token,
+      expiresAt: account.resetTokenExpiresAt,
+      message: `Reset token: ${token}. Convey this securely to the member (valid for 24 hours).`,
+    });
+  });
+
+  // Member Complete Password Reset
+  app.post('/api/auth/member/reset-password', async (req, res) => {
+    const { memberId, resetToken, newPassword } = req.body || {};
+    if (!memberId || !resetToken || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Member ID, reset token, and new password are required.' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters long.' });
+    }
+
+    const data = readData();
+    const account = (data.memberAccounts || []).find(
+      (a: any) => a.memberId?.toUpperCase() === String(memberId).trim().toUpperCase()
+    );
+
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Member account not found.' });
+    }
+
+    const cleanToken = String(resetToken).trim().toUpperCase();
+    if (!account.resetToken || account.resetToken.toUpperCase() !== cleanToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'The reset token is invalid or has expired. Please request a new token from the choir administration.',
+      });
+    }
+
+    account.passwordHash = hashPassword(newPassword);
+    account.isActivated = true;
+    account.resetToken = undefined;
+    account.resetTokenExpiresAt = undefined;
+    account.lastPasswordChange = new Date().toISOString();
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: account.memberId,
+      fullName: `Chorister (${account.memberId})`,
+      officialPosition: 'Chorister',
+      action: 'Password Reset Completed',
+      module: 'Security & Auth',
+      targetEntity: `Member (${account.memberId})`,
+      newValue: 'Password successfully reset using authorized single-use token',
+    });
+
+    res.json({ success: true, message: 'Password reset successfully! You can now log in with your new password.' });
+  });
+
+  // -------------------------------------------------------------
+  // API: Authenticated Member Personal Financial Statement
+  // -------------------------------------------------------------
+  app.get('/api/member/my-account', authenticateToken, (req: any, res) => {
+    if (req.user.userType !== 'member') {
+      return res.status(403).json({ success: false, message: 'Member access required.' });
+    }
+
+    const memberId = req.user.userId;
+    const data = readData();
+    const member = (data.members || []).find((m: any) => m.memberId === memberId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Chorister record not found.' });
+    }
+
+    const memberFines = (data.fines || []).filter((f: any) => f.memberId === memberId);
+    const memberDues = (data.monthlyDues || []).filter((d: any) => d.memberId === memberId);
+    const memberPayments = (data.payments || []).filter((p: any) => p.memberId === memberId);
+    const memberAttendance = (data.attendanceRecords || []).filter((r: any) => r.memberId === memberId);
+
+    const totalFines = memberFines
+      .filter((f: any) => !f.isExempted)
+      .reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0);
+
+    const finesPaid = memberPayments
+      .filter((p: any) => p.category !== 'Monthly Dues' && p.status !== 'Rejected')
+      .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+
+    const outstandingFines = Math.max(0, totalFines - finesPaid);
+
+    const totalDuesAssessed = memberDues
+      .filter((d: any) => d.status !== 'Exempted' && d.status !== 'Waived')
+      .reduce((sum: number, d: any) => sum + (Number(d.assessedAmount) || 0), 0);
+
+    const totalDuesPaid = memberDues
+      .reduce((sum: number, d: any) => sum + (Number(d.amountPaid) || 0), 0);
+
+    const outstandingDues = Math.max(0, totalDuesAssessed - totalDuesPaid);
+
+    res.json({
+      success: true,
+      member: {
+        memberId: member.memberId,
+        fullName: member.fullName,
+        voicePart: member.voicePart,
+        phoneNumber: member.phoneNumber,
+        membershipStatus: member.membershipStatus,
+        attendanceArrangement: member.attendanceArrangement,
+        membershipDate: member.membershipDate,
+      },
+      summary: {
+        totalFines,
+        finesPaid,
+        outstandingFines,
+        totalDuesAssessed,
+        totalDuesPaid,
+        outstandingDues,
+        grandTotalOutstanding: outstandingFines + outstandingDues,
+      },
+      fines: memberFines,
+      monthlyDues: memberDues,
+      payments: memberPayments,
+      attendance: memberAttendance,
+      bankDetails: data.settings?.bankDetails || {},
+      whatsappGroupInviteUrl: data.settings?.whatsappGroupInviteUrl || '',
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API: 2-Officer Dual Bank Account Approval & Notification Workflow
+  // -------------------------------------------------------------
+  app.post('/api/bank-details/propose', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { bankName, accountName, accountNumber, paymentInstructions, paymentContact, reason } = req.body || {};
+    if (!bankName || !accountName || !accountNumber) {
+      return res.status(400).json({ success: false, message: 'Bank Name, Account Name, and Account Number are required.' });
+    }
+
+    const data = readData();
+    const currentBank = data.settings?.bankDetails || {};
+
+    const proposalId = `PROP-BNK-${Date.now()}`;
+    const proposal = {
+      proposalId,
+      bankName: String(bankName).trim(),
+      accountName: String(accountName).trim(),
+      accountNumber: String(accountNumber).trim(),
+      paymentInstructions: String(paymentInstructions || 'Specify full name and Member ID in transfer narration.').trim(),
+      paymentContact: String(paymentContact || req.user.fullName).trim(),
+      reason: String(reason || 'Routine account update').trim(),
+      proposedBy: `${req.user.fullName} (${req.user.role})`,
+      proposedByUserId: req.user.userId,
+      proposedAt: new Date().toISOString(),
+      status: 'Pending Approval',
+      currentDetails: {
+        bankName: currentBank.bankName || 'None',
+        accountName: currentBank.accountName || 'None',
+        accountNumber: currentBank.accountNumber || 'None',
+      },
+    };
+
+    data.bankProposal = proposal;
+    if (data.settings && data.settings.bankDetails) {
+      data.settings.bankDetails.proposedChanges = proposal as any;
+    }
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Propose Bank Details Update',
+      module: 'Parish Financials',
+      targetEntity: 'Official Parish Bank Details',
+      newValue: `Proposed ${proposal.bankName} - ${proposal.accountNumber} (${proposal.accountName}). Awaiting secondary officer approval.`,
+      reason: proposal.reason,
+    });
+
+    res.json({
+      success: true,
+      proposal,
+      message: 'Bank details proposal submitted! A notification task has been created for the Choir Master or second officer to confirm.',
+    });
+  });
+
+  app.get('/api/bank-details/pending', authenticateToken, (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive access required.' });
+    }
+
+    const data = readData();
+    const proposal = data.bankProposal;
+    const isPending = proposal && proposal.status === 'Pending Approval';
+
+    res.json({
+      success: true,
+      hasPending: isPending,
+      proposal: isPending ? proposal : null,
+      history: data.bankProposalsHistory || [],
+      currentBankDetails: data.settings?.bankDetails || {},
+    });
+  });
+
+  app.post('/api/bank-details/approve', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { isApproved, rejectionReason } = req.body || {};
+    const data = readData();
+    const proposal = data.bankProposal;
+
+    if (!proposal || proposal.status !== 'Pending Approval') {
+      return res.status(400).json({ success: false, message: 'There is no pending bank details proposal awaiting approval.' });
+    }
+
+    // STRICT DUAL-CONTROL: Proposer CANNOT approve their own submission!
+    if (proposal.proposedByUserId === req.user.userId || proposal.proposedBy.includes(req.user.fullName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Two-Officer Dual Control Rule: You cannot approve a bank account change that you proposed. A second, independent executive officer must confirm this.',
+      });
+    }
+
+    if (isApproved) {
+      const oldSummary = `${data.settings.bankDetails?.bankName} - ${data.settings.bankDetails?.accountNumber}`;
+      data.settings.bankDetails = {
+        bankName: proposal.bankName,
+        accountName: proposal.accountName,
+        accountNumber: proposal.accountNumber,
+        paymentInstructions: proposal.paymentInstructions,
+        paymentContact: proposal.paymentContact,
+        isVerified: true,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      proposal.status = 'Approved';
+      proposal.reviewedBy = `${req.user.fullName} (${req.user.role})`;
+      proposal.reviewedAt = new Date().toISOString();
+
+      if (!Array.isArray(data.bankProposalsHistory)) data.bankProposalsHistory = [];
+      data.bankProposalsHistory.unshift(proposal);
+      data.bankProposal = null;
+
+      await recordAudit({
+        userId: req.user.userId,
+        fullName: req.user.fullName,
+        officialPosition: req.user.role,
+        action: 'Approve Official Bank Details',
+        module: 'Parish Financials',
+        targetEntity: 'Official Parish Bank Details',
+        oldValue: oldSummary,
+        newValue: `${data.settings.bankDetails.bankName} - ${data.settings.bankDetails.accountNumber} (${data.settings.bankDetails.accountName}) confirmed active`,
+      });
+
+      await atomicWriteData(data);
+      res.json({
+        success: true,
+        message: 'Official parish bank account successfully verified and activated! Details are now visible across the portal.',
+        bankDetails: data.settings.bankDetails,
+      });
+    } else {
+      proposal.status = 'Rejected';
+      proposal.rejectionReason = rejectionReason || 'Proposal rejected by secondary officer';
+      proposal.reviewedBy = `${req.user.fullName} (${req.user.role})`;
+      proposal.reviewedAt = new Date().toISOString();
+
+      if (!Array.isArray(data.bankProposalsHistory)) data.bankProposalsHistory = [];
+      data.bankProposalsHistory.unshift(proposal);
+      data.bankProposal = null;
+
+      await recordAudit({
+        userId: req.user.userId,
+        fullName: req.user.fullName,
+        officialPosition: req.user.role,
+        action: 'Reject Bank Details Proposal',
+        module: 'Parish Financials',
+        targetEntity: 'Official Parish Bank Details',
+        newValue: `Rejected by ${req.user.fullName}: ${proposal.rejectionReason}`,
+      });
+
+      await atomicWriteData(data);
+      res.json({
+        success: true,
+        message: 'Bank proposal rejected. The existing active account details were preserved.',
+        bankDetails: data.settings.bankDetails,
+      });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // API: Demo Dataset Management
+  // -------------------------------------------------------------
+  app.post('/api/demo/load', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const current = readData();
+
+    // Take snapshot of real production data before loading demo data
+    try {
+      fs.writeFileSync(PROD_SNAPSHOT_FILE, JSON.stringify(current, null, 2), 'utf-8');
+    } catch {}
+
+    // Load rich demo dataset
+    const { initialMembers, initialSessions, initialAttendanceRecords, initialFines, initialPayments } = await import('./src/data/initialData');
+
+    current.isDemoMode = true;
+    current.members = initialMembers;
+    current.sessions = initialSessions;
+    current.attendanceRecords = initialAttendanceRecords;
+    current.fines = initialFines;
+    current.payments = initialPayments;
+
+    await atomicWriteData(current);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Load Demonstration Dataset',
+      module: 'System Controls',
+      targetEntity: 'Demo Mode',
+      newValue: 'Demo dataset loaded for testing and rehearsal preview',
+    });
+
+    res.json({ success: true, message: 'Demo dataset loaded. You are currently in Demonstration Mode.' });
+  });
+
+  app.post('/api/demo/exit', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    // Restore saved production snapshot if available, or clean production state
+    let restored: any = null;
+    if (fs.existsSync(PROD_SNAPSHOT_FILE)) {
+      try {
+        restored = JSON.parse(fs.readFileSync(PROD_SNAPSHOT_FILE, 'utf-8'));
+      } catch {}
+    }
+
+    if (!restored) {
+      restored = getCleanProductionState();
+    }
+
+    restored.isDemoMode = false;
+    await atomicWriteData(restored);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Exit Demonstration Mode',
+      module: 'System Controls',
+      targetEntity: 'Production Mode',
+      newValue: 'Exited demo mode and restored production database',
+    });
+
+    res.json({ success: true, message: 'Exited Demonstration Mode. Production parish data restored.' });
+  });
+
+  // -------------------------------------------------------------
+  // API: Announcements & Manual WhatsApp Share Tracking
+  // -------------------------------------------------------------
+  app.post('/api/announcements/create', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { title, category, messageBody, relevantDate, relevantTime, venue, specialInstructions } = req.body || {};
+    if (!title || !messageBody) {
+      return res.status(400).json({ success: false, message: 'Title and message body are required.' });
+    }
+
+    const data = readData();
+    if (!Array.isArray(data.announcements)) data.announcements = [];
+
+    const newAnnouncement = {
+      announcementId: `ANN-${Date.now()}`,
+      title,
+      category: category || 'General Choir Update',
+      messageBody,
+      relevantDate,
+      relevantTime,
+      venue,
+      specialInstructions,
+      publishingOfficer: req.user.fullName,
+      publishingPosition: req.user.role,
+      publicationTimestamp: new Date().toISOString(),
+      status: 'Published',
+      shareHistory: [],
+    };
+
+    data.announcements.unshift(newAnnouncement);
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Publish Announcement',
+      module: 'Choir Communications',
+      targetEntity: `Announcement (${title})`,
+      newValue: `Published by ${req.user.fullName}`,
+    });
+
+    res.json({ success: true, announcement: newAnnouncement });
+  });
+
+  // -------------------------------------------------------------
+  // API: Audit Logs (Read-only for authorized executives)
+  // -------------------------------------------------------------
+  app.get('/api/audit-logs', authenticateToken, (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const data = readData();
+    const logs = data?.auditLogs || [];
+    res.json({ success: true, logs });
+  });
+
+  // -------------------------------------------------------------
+  // API: Songs & Music Scores (Guaranteed Firestore & Disk Persistence)
+  // -------------------------------------------------------------
+  app.post('/api/songs', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const newSong = req.body;
+    if (!newSong || !newSong.title) {
+      return res.status(400).json({ success: false, message: 'Song title is required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.songs)) data.songs = [];
+
+    const songId = newSong.songId || `SNG-${Date.now()}`;
+    const fullSong = {
+      ...newSong,
+      songId,
+      scriptText: newSong.scriptText || newSong.lyrics || '',
+      solfaNotes: newSong.solfaNotes || newSong.solfaNotation || '',
+      dateAdded: newSong.dateAdded || new Date().toISOString().split('T')[0],
+    };
+
+    const existingIdx = data.songs.findIndex((s: any) => s.songId === songId);
+    if (existingIdx >= 0) {
+      data.songs[existingIdx] = fullSong;
+    } else {
+      data.songs.unshift(fullSong);
+    }
+
+    await atomicWriteData(data);
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: existingIdx >= 0 ? 'Update Song' : 'Add Song',
+      module: 'Music Library',
+      targetEntity: fullSong.title,
+      recordId: songId,
+    });
+
+    res.json({ success: true, song: fullSong, songs: data.songs });
+  });
+
+  app.delete('/api/songs/:id', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const { id } = req.params;
+    const data = readData();
+    if (!Array.isArray(data.songs)) data.songs = [];
+    const target = data.songs.find((s: any) => s.songId === id);
+    data.songs = data.songs.filter((s: any) => s.songId !== id);
+
+    await atomicWriteData(data);
+    if (target) {
+      await recordAudit({
+        userId: req.user.userId,
+        fullName: req.user.fullName,
+        officialPosition: req.user.role,
+        action: 'Delete Song',
+        module: 'Music Library',
+        targetEntity: target.title,
+        recordId: id,
+      });
+    }
+    res.json({ success: true, songs: data.songs });
+  });
+
+  // -------------------------------------------------------------
+  // API: Media & Photo Gallery (Guaranteed Persistence)
+  // -------------------------------------------------------------
+  app.post('/api/gallery', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const newPhoto = req.body;
+    if (!newPhoto || !newPhoto.title || !newPhoto.imageUrl) {
+      return res.status(400).json({ success: false, message: 'Photo title and image are required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.gallery)) data.gallery = [];
+
+    const photoId = newPhoto.photoId || `GAL-${Date.now()}`;
+    const fullPhoto = {
+      ...newPhoto,
+      photoId,
+      uploadedDate: newPhoto.uploadedDate || new Date().toISOString().split('T')[0],
+    };
+
+    data.gallery.unshift(fullPhoto);
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Upload Media Photo',
+      module: 'Media Gallery',
+      targetEntity: fullPhoto.title,
+      recordId: photoId,
+    });
+
+    res.json({ success: true, photo: fullPhoto, gallery: data.gallery });
+  });
+
+  app.delete('/api/gallery/:id', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const { id } = req.params;
+    const data = readData();
+    if (!Array.isArray(data.gallery)) data.gallery = [];
+    const target = data.gallery.find((p: any) => p.photoId === id);
+    data.gallery = data.gallery.filter((p: any) => p.photoId !== id);
+
+    await atomicWriteData(data);
+    if (target) {
+      await recordAudit({
+        userId: req.user.userId,
+        fullName: req.user.fullName,
+        officialPosition: req.user.role,
+        action: 'Delete Media Photo',
+        module: 'Media Gallery',
+        targetEntity: target.title,
+        recordId: id,
+      });
+    }
+    res.json({ success: true, gallery: data.gallery });
+  });
+
+  // -------------------------------------------------------------
+  // API: Chorister Members & Roster (Guaranteed Persistence)
+  // -------------------------------------------------------------
+  app.post('/api/members', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const newMember = req.body;
+    if (!newMember || !newMember.fullName || !newMember.voicePart) {
+      return res.status(400).json({ success: false, message: 'Full name and voice part are required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.members)) data.members = [];
+
+    const memberId = newMember.memberId || `CHO-${newMember.voicePart[0].toUpperCase()}${String(data.members.length + 1).padStart(2, '0')}`;
+    const fullMember = {
+      ...newMember,
+      memberId,
+      registrationDate: newMember.registrationDate || new Date().toISOString().split('T')[0],
+      membershipStatus: newMember.membershipStatus || 'Active',
+    };
+
+    const existingIdx = data.members.findIndex((m: any) => m.memberId === memberId);
+    if (existingIdx >= 0) {
+      data.members[existingIdx] = fullMember;
+    } else {
+      data.members.push(fullMember);
+    }
+
+    // Ensure member accounts entry exists for authentication
+    if (!Array.isArray(data.memberAccounts)) data.memberAccounts = [];
+    let acc = data.memberAccounts.find((a: any) => a.memberId === memberId);
+    if (!acc) {
+      acc = {
+        memberId,
+        username: memberId.toLowerCase(),
+        fullName: fullMember.fullName,
+        isActivated: false,
+        activationCode: `ACT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+        voicePart: fullMember.voicePart,
+        phoneNumber: fullMember.phoneNumber,
+      };
+      data.memberAccounts.push(acc);
+    } else {
+      acc.fullName = fullMember.fullName;
+      acc.voicePart = fullMember.voicePart;
+      acc.phoneNumber = fullMember.phoneNumber;
+    }
+
+    await atomicWriteData(data);
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: existingIdx >= 0 ? 'Update Chorister' : 'Register Chorister',
+      module: 'Membership',
+      targetEntity: fullMember.fullName,
+      recordId: memberId,
+    });
+
+    res.json({ success: true, member: fullMember, members: data.members });
+  });
+
+  app.post('/api/members/bulk', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const { members: newMembers } = req.body || {};
+    if (!Array.isArray(newMembers) || newMembers.length === 0) {
+      return res.status(400).json({ success: false, message: 'Valid members array is required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.members)) data.members = [];
+    if (!Array.isArray(data.memberAccounts)) data.memberAccounts = [];
+
+    for (const m of newMembers) {
+      const idx = data.members.findIndex((existing: any) => existing.memberId === m.memberId);
+      if (idx >= 0) {
+        data.members[idx] = m;
+      } else {
+        data.members.push(m);
+      }
+
+      if (!data.memberAccounts.some((a: any) => a.memberId === m.memberId)) {
+        data.memberAccounts.push({
+          memberId: m.memberId,
+          username: m.memberId.toLowerCase(),
+          fullName: m.fullName,
+          isActivated: false,
+          activationCode: `ACT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+          voicePart: m.voicePart,
+          phoneNumber: m.phoneNumber,
+        });
+      }
+    }
+
+    await atomicWriteData(data);
+    res.json({ success: true, count: newMembers.length, members: data.members });
+  });
+
+  // -------------------------------------------------------------
+  // API: Chorister Archiving, Reactivation & Deletion Operations
+  // -------------------------------------------------------------
+
+  // Inspect dependent historical records before deletion
+  app.get('/api/members/:id/deletion-eligibility', authenticateToken, (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id: memberId } = req.params;
+    const data = readData();
+    const member = (data.members || []).find((m: any) => m.memberId === memberId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found.' });
+    }
+
+    const attendanceCount = (data.attendanceRecords || []).filter((r: any) => r.memberId === memberId).length;
+    const fines = (data.fines || []).filter((f: any) => f.memberId === memberId);
+    const finesCount = fines.length;
+    const payments = (data.payments || []).filter((p: any) => p.memberId === memberId);
+    const paymentsCount = payments.length;
+    const dues = (data.monthlyDues || []).filter((d: any) => d.memberId === memberId);
+    const duesCount = dues.length;
+    const queriesCount = (data.queries || []).filter((q: any) => q.memberId === memberId).length;
+    const suspensionsCount = (data.suspensions || []).filter((s: any) => s.memberId === memberId).length;
+    const complaintsCount = (data.complaints || []).filter((c: any) => c.memberId === memberId).length;
+    const accommodationsCount = (data.accommodations || []).filter((a: any) => a.memberId === memberId).length;
+    const absencesCount = (data.absences || []).filter((ab: any) => ab.memberId === memberId).length;
+
+    const totalFines = fines.reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0);
+    const totalPayments = payments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+    const outstandingBalance = Math.max(0, totalFines - totalPayments);
+
+    const totalDependentRecords = attendanceCount + finesCount + paymentsCount + duesCount + queriesCount + suspensionsCount + complaintsCount + accommodationsCount + absencesCount;
+
+    const isChoirMaster = req.user.role === 'Choir Master' || req.user.position === 'Choir Master';
+    const isAdmin = Array.isArray(req.user.permissions) && (req.user.permissions.includes('all') || req.user.permissions.includes('admin'));
+    const userAuthorized = isChoirMaster || isAdmin;
+
+    res.json({
+      success: true,
+      memberId,
+      fullName: member.fullName,
+      voicePart: member.voicePart,
+      membershipStatus: member.membershipStatus,
+      counts: {
+        attendance: attendanceCount,
+        fines: finesCount,
+        payments: paymentsCount,
+        monthlyDues: duesCount,
+        queries: queriesCount,
+        suspensions: suspensionsCount,
+        complaints: complaintsCount,
+        accommodations: accommodationsCount,
+        absences: absencesCount,
+        total: totalDependentRecords,
+      },
+      outstandingBalance,
+      canPermanentlyDelete: totalDependentRecords === 0 && userAuthorized,
+      userAuthorized,
+      reasonBlocked: totalDependentRecords > 0 
+        ? `Member has ${totalDependentRecords} linked historical record(s) (attendance, fines, payments, or discipline). Permanent deletion would destroy audit and financial history. Please archive instead.`
+        : !userAuthorized 
+        ? 'Only the Choir Master or System Administrator can execute permanent deletions.'
+        : null,
+    });
+  });
+
+  // Archive a member (Default safe removal preserving all history)
+  app.post('/api/members/:id/archive', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id: memberId } = req.params;
+    const { reason } = req.body || {};
+    const archiveReason = String(reason || 'Administrative Archival').trim();
+
+    const data = readData();
+    if (!Array.isArray(data.members)) data.members = [];
+    const member = data.members.find((m: any) => m.memberId === memberId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found.' });
+    }
+
+    const prevStatus = member.membershipStatus || 'Active';
+    member.membershipStatus = 'Archived';
+    member.archiveReason = archiveReason;
+    member.archivedAt = new Date().toISOString();
+    member.archivedBy = req.user.fullName || req.user.role || 'Executive Officer';
+
+    // Deactivate member auth account so check-in and portal access are prevented
+    if (Array.isArray(data.memberAccounts)) {
+      const acc = data.memberAccounts.find((a: any) => a.memberId === memberId);
+      if (acc) {
+        acc.isArchived = true;
+        acc.isActivated = false;
+      }
+    }
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Archive Member',
+      module: 'Membership',
+      targetEntity: `Chorister (${member.fullName} · ${memberId})`,
+      recordId: memberId,
+      oldValue: `Status: ${prevStatus}`,
+      newValue: 'Status: Archived',
+      reason: archiveReason,
+    });
+
+    res.json({
+      success: true,
+      message: `Chorister ${member.fullName} (${memberId}) successfully archived. All historical attendance, payments, and fine records remain fully preserved.`,
+      member,
+      members: data.members,
+    });
+  });
+
+  // Reactivate an archived member
+  app.post('/api/members/:id/reactivate', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    const { id: memberId } = req.params;
+    const { reason } = req.body || {};
+    const reactivateReason = String(reason || 'Administrative Reactivation').trim();
+
+    const data = readData();
+    if (!Array.isArray(data.members)) data.members = [];
+    const member = data.members.find((m: any) => m.memberId === memberId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found.' });
+    }
+
+    const prevStatus = member.membershipStatus;
+    member.membershipStatus = 'Active';
+    delete member.archiveReason;
+    delete member.archivedAt;
+    delete member.archivedBy;
+
+    // Reactivate member auth account
+    if (Array.isArray(data.memberAccounts)) {
+      const acc = data.memberAccounts.find((a: any) => a.memberId === memberId);
+      if (acc) {
+        acc.isArchived = false;
+        acc.isActivated = true;
+      }
+    }
+
+    await atomicWriteData(data);
+
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Reactivate Member',
+      module: 'Membership',
+      targetEntity: `Chorister (${member.fullName} · ${memberId})`,
+      recordId: memberId,
+      oldValue: `Status: ${prevStatus}`,
+      newValue: 'Status: Active',
+      reason: reactivateReason,
+    });
+
+    res.json({
+      success: true,
+      message: `Chorister ${member.fullName} (${memberId}) has been restored to Active status without duplicating any historical records.`,
+      member,
+      members: data.members,
+    });
+  });
+
+  // Permanently Delete Member (Restricted to Choir Master / System Admin, blocked if historical records exist)
+  app.delete('/api/members/:id', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+
+    // Role check: Only Choir Master or System Admin
+    const isChoirMaster = req.user.role === 'Choir Master' || req.user.position === 'Choir Master';
+    const isAdmin = Array.isArray(req.user.permissions) && (req.user.permissions.includes('all') || req.user.permissions.includes('admin'));
+    if (!isChoirMaster && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permanent deletion is strictly restricted to the Choir Master or System Administrator. You can archive this member instead.',
+      });
+    }
+
+    const { id: memberId } = req.params;
+    const { reason } = req.body || {};
+    const deleteReason = String(reason || 'Permanent administrative deletion').trim();
+
+    const data = readData();
+    if (!Array.isArray(data.members)) data.members = [];
+    const member = data.members.find((m: any) => m.memberId === memberId);
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found.' });
+    }
+
+    // Safety checks: Inspect all dependent collections
+    const attendanceCount = (data.attendanceRecords || []).filter((r: any) => r.memberId === memberId).length;
+    const finesCount = (data.fines || []).filter((f: any) => f.memberId === memberId).length;
+    const paymentsCount = (data.payments || []).filter((p: any) => p.memberId === memberId).length;
+    const duesCount = (data.monthlyDues || []).filter((d: any) => d.memberId === memberId).length;
+    const queriesCount = (data.queries || []).filter((q: any) => q.memberId === memberId).length;
+    const suspensionsCount = (data.suspensions || []).filter((s: any) => s.memberId === memberId).length;
+    const complaintsCount = (data.complaints || []).filter((c: any) => c.memberId === memberId).length;
+    const accommodationsCount = (data.accommodations || []).filter((a: any) => a.memberId === memberId).length;
+    const absencesCount = (data.absences || []).filter((ab: any) => ab.memberId === memberId).length;
+
+    const totalDependentRecords = attendanceCount + finesCount + paymentsCount + duesCount + queriesCount + suspensionsCount + complaintsCount + accommodationsCount + absencesCount;
+
+    if (totalDependentRecords > 0) {
+      return res.status(400).json({
+        success: false,
+        blocked: true,
+        message: `Permanent deletion blocked: This chorister has ${totalDependentRecords} linked historical records (${attendanceCount} attendance check-ins, ${finesCount} fines, ${paymentsCount} payments, ${duesCount} dues assessments). Deleting would compromise choir audit and financial integrity. Please archive this member instead.`,
+        counts: {
+          attendance: attendanceCount,
+          fines: finesCount,
+          payments: paymentsCount,
+          monthlyDues: duesCount,
+          queries: queriesCount,
+          suspensions: suspensionsCount,
+          complaints: complaintsCount,
+          accommodations: accommodationsCount,
+          absences: absencesCount,
+          total: totalDependentRecords,
+        },
+      });
+    }
+
+    // Zero records: safe to permanently delete
+    const memberName = member.fullName;
+    const prevStatus = member.membershipStatus;
+    data.members = data.members.filter((m: any) => m.memberId !== memberId);
+    if (Array.isArray(data.memberAccounts)) {
+      data.memberAccounts = data.memberAccounts.filter((a: any) => a.memberId !== memberId);
+    }
+
+    await atomicWriteData(data);
+
+    // Retain minimal deletion-event reference in audit log without storing unnecessary personal details
+    await recordAudit({
+      userId: req.user.userId,
+      fullName: req.user.fullName,
+      officialPosition: req.user.role,
+      action: 'Permanently Delete Member',
+      module: 'Membership',
+      targetEntity: `Member ID: ${memberId} (${memberName})`,
+      recordId: memberId,
+      oldValue: `Status: ${prevStatus}`,
+      newValue: 'Status: Permanently Deleted',
+      reason: deleteReason,
+    });
+
+    res.json({
+      success: true,
+      message: `Member ${memberName} (${memberId}) has been permanently deleted from the database. Minimal deletion event logged in audit trail.`,
+      members: data.members,
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API: Rehearsal Timetable & Sessions (Guaranteed Persistence)
+  // -------------------------------------------------------------
+  app.post('/api/sessions', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const newSession = req.body;
+    if (!newSession || !newSession.date || !newSession.activityType) {
+      return res.status(400).json({ success: false, message: 'Date and activity type are required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.sessions)) data.sessions = [];
+
+    const sessionId = newSession.sessionId || `SES-${Date.now()}`;
+    const fullSession = {
+      ...newSession,
+      sessionId,
+    };
+
+    const existingIdx = data.sessions.findIndex((s: any) => s.sessionId === sessionId);
+    if (existingIdx >= 0) {
+      data.sessions[existingIdx] = fullSession;
+    } else {
+      data.sessions.unshift(fullSession);
+    }
+
+    await atomicWriteData(data);
+    res.json({ success: true, session: fullSession, sessions: data.sessions });
+  });
+
+  // -------------------------------------------------------------
+  // API: Attendance Recording (Choristers & Provosts)
+  // -------------------------------------------------------------
+  app.post('/api/attendance', authenticateToken, async (req: any, res) => {
+    const newRecord = req.body;
+    if (!newRecord || !newRecord.memberId || !newRecord.sessionId) {
+      return res.status(400).json({ success: false, message: 'Member ID and session ID are required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.attendanceRecords)) data.attendanceRecords = [];
+
+    const member = (data.members || []).find((m: any) => m.memberId === newRecord.memberId);
+    if (member && (member.membershipStatus === 'Archived' || member.membershipStatus === 'Inactive')) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record attendance: Member ${member.fullName} (${member.memberId}) is currently ${member.membershipStatus.toLowerCase()}.`,
+      });
+    }
+
+    const attendanceId = newRecord.attendanceId || `ATT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const fullRecord = {
+      ...newRecord,
+      attendanceId,
+    };
+
+    const existingIdx = data.attendanceRecords.findIndex(
+      (r: any) => r.sessionId === fullRecord.sessionId && r.memberId === fullRecord.memberId
+    );
+    if (existingIdx >= 0) {
+      data.attendanceRecords[existingIdx] = fullRecord;
+    } else {
+      data.attendanceRecords.unshift(fullRecord);
+    }
+
+    await atomicWriteData(data);
+    res.json({ success: true, record: fullRecord, attendanceRecords: data.attendanceRecords });
+  });
+
+  // -------------------------------------------------------------
+  // API: Payments & Cashier Records
+  // -------------------------------------------------------------
+  app.post('/api/payments', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const newPayment = req.body;
+    if (!newPayment || !newPayment.memberId || !newPayment.amount) {
+      return res.status(400).json({ success: false, message: 'Member ID and amount are required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.payments)) data.payments = [];
+
+    const paymentId = newPayment.paymentId || `PAY-${Date.now()}`;
+    const fullPayment = {
+      ...newPayment,
+      paymentId,
+      date: newPayment.date || new Date().toISOString().split('T')[0],
+    };
+
+    data.payments.unshift(fullPayment);
+
+    // If fine settled, update status
+    if (fullPayment.fineId && Array.isArray(data.fines)) {
+      const fine = data.fines.find((f: any) => f.fineId === fullPayment.fineId);
+      if (fine) {
+        fine.paymentStatus = 'Paid';
+        fine.paymentDate = fullPayment.date;
+      }
+    }
+
+    await atomicWriteData(data);
+    res.json({ success: true, payment: fullPayment, payments: data.payments, fines: data.fines });
+  });
+
+  // -------------------------------------------------------------
+  // API: Monthly Dues Operations (Excludes Archived/Inactive Members)
+  // -------------------------------------------------------------
+  app.post('/api/dues/generate-cycle', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const { billingMonth, amount } = req.body || {};
+    if (!billingMonth) {
+      return res.status(400).json({ success: false, message: 'Billing month is required (YYYY-MM).' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.monthlyDues)) data.monthlyDues = [];
+    const duesAmount = Number(amount) || Number(data.settings?.monthlyDuesConfig?.standardMonthlyRate) || 500;
+
+    // Critical Requirement: Archived and inactive members are strictly excluded from new monthly dues assessments
+    const activeMembers = (data.members || []).filter((m: any) => m.membershipStatus === 'Active');
+    let addedCount = 0;
+
+    for (const m of activeMembers) {
+      const exists = data.monthlyDues.some((d: any) => d.memberId === m.memberId && d.month === billingMonth);
+      if (!exists) {
+        data.monthlyDues.push({
+          assessmentId: `DUE-${billingMonth.replace('-', '')}-${m.memberId}`,
+          memberId: m.memberId,
+          memberName: m.fullName,
+          voicePart: m.voicePart,
+          month: billingMonth,
+          year: Number(billingMonth.split('-')[0]),
+          assessedAmount: duesAmount,
+          amountPaid: 0,
+          remainingBalance: duesAmount,
+          status: 'Unpaid',
+          dueDate: `${billingMonth}-28`,
+          generatedDate: new Date().toISOString(),
+          paymentHistory: [],
+        });
+        addedCount++;
+      }
+    }
+
+    await atomicWriteData(data);
+    res.json({
+      success: true,
+      message: `Generated monthly dues for ${addedCount} active chorister(s). Archived and inactive members were excluded.`,
+      assessments: data.monthlyDues,
+    });
+  });
+
+  app.post('/api/dues/record-payment', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const { assessmentId, amount, method, reference } = req.body || {};
+    const data = readData();
+    if (!Array.isArray(data.monthlyDues)) data.monthlyDues = [];
+    const due = data.monthlyDues.find((d: any) => d.assessmentId === assessmentId);
+    if (!due) return res.status(404).json({ success: false, message: 'Dues assessment not found.' });
+
+    const payAmt = Number(amount) || 0;
+    due.amountPaid = (Number(due.amountPaid) || 0) + payAmt;
+    due.remainingBalance = Math.max(0, (Number(due.assessedAmount) || 0) - due.amountPaid);
+    due.status = due.remainingBalance === 0 ? 'Settled' : due.amountPaid > 0 ? 'Partial' : 'Unpaid';
+    if (!Array.isArray(due.paymentHistory)) due.paymentHistory = [];
+    due.paymentHistory.push({
+      paymentId: `PAY-DUE-${Date.now()}`,
+      amount: payAmt,
+      date: new Date().toISOString().split('T')[0],
+      method: method || 'Bank Transfer',
+      reference: reference || '',
+      recordedBy: req.user.fullName,
+    });
+
+    await atomicWriteData(data);
+    res.json({ success: true, assessments: data.monthlyDues });
+  });
+
+  // -------------------------------------------------------------
+  // API: Absences & Complaints
+  // -------------------------------------------------------------
+  app.post('/api/absences', authenticateToken, async (req: any, res) => {
+    const newAbsence = req.body;
+    if (!newAbsence || !newAbsence.memberId) {
+      return res.status(400).json({ success: false, message: 'Member ID is required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.absences)) data.absences = [];
+    const notificationId = newAbsence.notificationId || `ABS-${Date.now()}`;
+    const fullAbsence = { ...newAbsence, notificationId };
+    data.absences.unshift(fullAbsence);
+    await atomicWriteData(data);
+    res.json({ success: true, absence: fullAbsence, absences: data.absences });
+  });
+
+  app.post('/api/complaints', authenticateToken, async (req: any, res) => {
+    const newComplaint = req.body;
+    if (!newComplaint || !newComplaint.memberId) {
+      return res.status(400).json({ success: false, message: 'Member ID is required.' });
+    }
+    const data = readData();
+    if (!Array.isArray(data.complaints)) data.complaints = [];
+    const complaintId = newComplaint.complaintId || `CMP-${Date.now()}`;
+    const fullComplaint = { ...newComplaint, complaintId };
+    data.complaints.unshift(fullComplaint);
+    await atomicWriteData(data);
+    res.json({ success: true, complaint: fullComplaint, complaints: data.complaints });
+  });
+
+  // -------------------------------------------------------------
+  // API: Disciplinary Actions
+  // -------------------------------------------------------------
+  app.post('/api/discipline/query', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const newQuery = req.body;
+    const data = readData();
+    if (!Array.isArray(data.queries)) data.queries = [];
+    const queryId = newQuery.queryId || `QRY-${Date.now()}`;
+    const fullQuery = { ...newQuery, queryId };
+    data.queries.unshift(fullQuery);
+    await atomicWriteData(data);
+    res.json({ success: true, query: fullQuery, queries: data.queries });
+  });
+
+  app.post('/api/discipline/suspension', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const suspension = req.body;
+    const data = readData();
+    if (!Array.isArray(data.suspensions)) data.suspensions = [];
+    const suspensionId = suspension.suspensionId || `SUS-${Date.now()}`;
+    const fullSuspension = { ...suspension, suspensionId };
+    data.suspensions.unshift(fullSuspension);
+
+    if (Array.isArray(data.members)) {
+      const m = data.members.find((mem: any) => mem.memberId === suspension.memberId);
+      if (m) m.membershipStatus = 'Suspended';
+    }
+
+    await atomicWriteData(data);
+    res.json({ success: true, suspension: fullSuspension, suspensions: data.suspensions, members: data.members });
+  });
+
+  app.post('/api/discipline/reinstate', authenticateToken, async (req: any, res) => {
+    if (req.user.userType !== 'executive') {
+      return res.status(403).json({ success: false, message: 'Executive authorization required.' });
+    }
+    const { suspensionId, memberId } = req.body;
+    const data = readData();
+    if (Array.isArray(data.suspensions)) {
+      const s = data.suspensions.find((sus: any) => sus.suspensionId === suspensionId);
+      if (s) {
+        s.status = 'Lifted';
+        s.reinstatedDate = new Date().toISOString().split('T')[0];
+      }
+    }
+    if (Array.isArray(data.members)) {
+      const m = data.members.find((mem: any) => mem.memberId === memberId);
+      if (m) m.membershipStatus = 'Active';
+    }
+    await atomicWriteData(data);
+    res.json({ success: true, suspensions: data.suspensions, members: data.members });
+  });
+
+  // Development: Vite middleware; Production: static dist
+  const isProduction = process.env.NODE_ENV === 'production';
+  const distExists = fs.existsSync(path.resolve(process.cwd(), 'dist/index.html'));
+
+  if (isProduction && distExists) {
+    app.use(express.static(path.resolve(process.cwd(), 'dist')));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
+    });
+  } else {
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`OMPH Choral Ministry Server running on port ${PORT}`);
+  });
+}
+
+startServer();

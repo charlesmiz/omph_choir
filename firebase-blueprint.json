@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "ChurchData": {
+      "title": "ChurchData",
+      "description": "Consolidated authoritative persistent storage document for OMPH Catholic Parish Choir Management Portal",
+      "type": "object",
+      "properties": {
+        "version": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "isDemoMode": { "type": "boolean" },
+        "settings": { "type": "object" },
+        "positions": { "type": "array" },
+        "executiveAccounts": { "type": "array" },
+        "members": { "type": "array" },
+        "memberAccounts": { "type": "array" },
+        "sessions": { "type": "array" },
+        "scheduleAudits": { "type": "array" },
+        "attendanceRecords": { "type": "array" },
+        "fines": { "type": "array" },
+        "payments": { "type": "array" },
+        "monthlyDues": { "type": "array" },
+        "adjustments": { "type": "array" },
+        "absences": { "type": "array" },
+        "accommodations": { "type": "array" },
+        "queries": { "type": "array" },
+        "suspensions": { "type": "array" },
+        "complaints": { "type": "array" },
+        "fundMovements": { "type": "array" },
+        "songs": { "type": "array" },
+        "gallery": { "type": "array" },
+        "announcements": { "type": "array" },
+        "bankProposal": { "type": "object" },
+        "bankProposalsHistory": { "type": "array" },
+        "auditLogs": { "type": "array" }
+      },
+      "required": ["version", "updatedAt", "settings"]
+    }
+  },
+  "firestore": {
+    "/parish_portal/{parishId}": {
+      "schema": "ChurchData",
+      "description": "Parish portal document storing all authoritative persistent data for the choir"
+    }
+  }
+}

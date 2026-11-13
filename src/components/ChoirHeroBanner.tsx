@@ -5,7 +5,8 @@ import { SystemSettings, RehearsalSession } from '../types';
 interface ChoirHeroBannerProps {
   settings?: SystemSettings;
   totalMembers?: number;
-  activeSession?: RehearsalSession;
+  activeSession?: RehearsalSession | null;
+  nextSession?: RehearsalSession | null;
   mode?: 'executive' | 'member';
   className?: string;
 }
@@ -14,6 +15,7 @@ export const ChoirHeroBanner: React.FC<ChoirHeroBannerProps> = ({
   settings,
   totalMembers = 0,
   activeSession,
+  nextSession,
   mode = 'member',
   className = '',
 }) => {
@@ -109,17 +111,30 @@ export const ChoirHeroBanner: React.FC<ChoirHeroBannerProps> = ({
             </div>
 
             {/* Quick Session Call-time Badge */}
-            {activeSession && (
+            {activeSession && activeSession.sessionStatus === 'In Progress' ? (
+              <div className="bg-emerald-950/85 backdrop-blur-md border border-emerald-400/40 rounded-xl px-3 py-1.5 sm:px-4 sm:py-2.5 shrink-0 sm:text-right shadow-lg">
+                <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-emerald-300 flex items-center sm:justify-end gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  Rehearsal In Progress
+                </span>
+                <div className="flex items-center sm:justify-end gap-1.5 text-white font-bold mt-0.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-300" />
+                  <span className="font-mono text-sm sm:text-base">{activeSession.requiredArrivalTime}</span>
+                  <span className="text-xs text-emerald-200/90 font-medium">({activeSession.activityType})</span>
+                </div>
+              </div>
+            ) : nextSession ? (
               <div className="bg-black/70 backdrop-blur-md border border-white/20 rounded-xl px-3 py-1.5 sm:px-4 sm:py-2.5 shrink-0 sm:text-right">
                 <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-amber-200 block">
-                  {activeSession.sessionStatus === 'In Progress' ? 'Rehearsal In Progress' : 'Rehearsal Call Time'}
+                  Next Rehearsal Call Time
                 </span>
                 <div className="flex items-center sm:justify-end gap-1.5 text-white font-bold">
                   <Clock className="w-3.5 h-3.5 text-amber-300" />
-                  <span className="font-mono text-sm sm:text-base">{activeSession.requiredArrivalTime}</span>
+                  <span className="font-mono text-sm sm:text-base">{nextSession.requiredArrivalTime}</span>
+                  <span className="text-xs text-slate-300 font-normal">· {nextSession.activityType}</span>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

@@ -10,6 +10,59 @@
     <meta property="og:description" content="OMPH Choir management, attendance, punctuality, and financial accountability system." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        // Prevent extension collision on window.ethereum
+        try {
+          var _eth = undefined;
+          Object.defineProperty(window, 'ethereum', {
+            configurable: true,
+            enumerable: true,
+            get: function() { return _eth; },
+            set: function(val) { _eth = val; }
+          });
+        } catch (_) {}
+
+        // Global capture-phase filter to prevent third-party browser extensions & dev WebSocket failures from crashing the applet
+        window.addEventListener('error', function(event) {
+          var msg = (event && event.message) ? String(event.message) : '';
+          var file = (event && event.filename) ? String(event.filename) : '';
+          var stack = (event && event.error && event.error.stack) ? String(event.error.stack) : '';
+          if (
+            msg.indexOf('Cannot redefine property: ethereum') !== -1 ||
+            (msg.indexOf('ethereum') !== -1 && file.indexOf('extension') !== -1) ||
+            file.indexOf('chrome-extension://') !== -1 ||
+            file.indexOf('moz-extension://') !== -1 ||
+            file.indexOf('safari-extension://') !== -1 ||
+            file.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('createWebSocketModuleRunnerTransport') !== -1 ||
+            stack.indexOf('createWebSocketModuleRunnerTransport') !== -1 ||
+            stack.indexOf('@vite/client') !== -1
+          ) {
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.preventDefault) event.preventDefault();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event && event.reason;
+          var msg = (reason && (reason.message || reason.stack)) ? String(reason.message || reason.stack) : String(reason || '');
+          if (
+            msg.indexOf('Cannot redefine property: ethereum') !== -1 ||
+            msg.indexOf('chrome-extension://') !== -1 ||
+            msg.indexOf('moz-extension://') !== -1 ||
+            msg.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('createWebSocketModuleRunnerTransport') !== -1
+          ) {
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.preventDefault) event.preventDefault();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

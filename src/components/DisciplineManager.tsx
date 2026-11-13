@@ -14,6 +14,7 @@ import {
   QueryRecord, 
   SuspensionRecord 
 } from '../types';
+import { HelpToggle } from './HelpToggle';
 
 interface DisciplineManagerProps {
   members: Chorister[];
@@ -79,7 +80,7 @@ export const DisciplineManager: React.FC<DisciplineManagerProps> = ({
       outstandingAmount: item.overdueTotal,
       fineIds: item.overdueFines.map(f => f.fineId),
       status: 'Issued',
-      issuedBy: 'Sir Anthony K. Nwosu (Choir Master) & Brother Emmanuel Okoli (Provost)',
+      issuedBy: 'Choir Master & Provost Office',
       officialNoticeText: `OFFICIAL DISCIPLINARY QUERY: In accordance with Part 11 of the Choir Accountability Policy, your outstanding disciplinary fines totaling ₦${item.overdueTotal.toLocaleString()} have remained unsettled beyond the 21-calendar-day threshold. You are required to submit an explanation or proposed installment plan on or before ${deadline.toISOString().split('T')[0]}.`,
     };
 
@@ -91,13 +92,13 @@ export const DisciplineManager: React.FC<DisciplineManagerProps> = ({
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="space-y-1.5">
           <h2 className="text-base font-bold text-slate-900">
             Three-Week (21-Day) Debt Query & Disciplinary Accountability
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Automatic flagging of fines unpaid after 21 calendar days. Disciplinary query notices carry a 7-day response window.
-          </p>
+          <HelpToggle label="Policy rules">
+            Fines unpaid after 21 calendar days are flagged for an official query notice carrying a 7-day response window.
+          </HelpToggle>
         </div>
 
         <span className="text-xs font-semibold px-3 py-1 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg">
@@ -111,15 +112,12 @@ export const DisciplineManager: React.FC<DisciplineManagerProps> = ({
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
             Accounts Exceeding 21-Day Threshold
           </h3>
-          <p className="text-[11px] text-slate-500">
-            Choir rule: Fines un-cleared after 21 calendar days qualify for official disciplinary query notice.
-          </p>
         </div>
 
         <div className="space-y-3">
-          {overdueDebtScan.map(item => (
+          {overdueDebtScan.map((item, idx) => (
             <div 
-              key={item.member.memberId}
+              key={`${item.member.memberId}-${idx}`}
               className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 flex flex-wrap items-center justify-between gap-3 text-xs"
             >
               <div>
@@ -160,9 +158,8 @@ export const DisciplineManager: React.FC<DisciplineManagerProps> = ({
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
         <div className="border-b border-slate-100 pb-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-            Issued Queries & Responses (Sheet 15)
+            Issued Queries & Responses
           </h3>
-          <p className="text-[11px] text-slate-500">Official notices with 7-day response deadlines</p>
         </div>
 
         <div className="overflow-x-auto">

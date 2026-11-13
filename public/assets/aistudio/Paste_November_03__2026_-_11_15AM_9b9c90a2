@@ -1,0 +1,989 @@
+# OMPH CHOIR MANAGEMENT PORTAL — PHASE 2 UPGRADE
+## Member Experience, Individual Authentication, Executive Accountability, WhatsApp Integration and Monthly Financial Contributions
+
+### YOUR ROLE
+
+Act as a senior full-stack software architect, React/TypeScript engineer, Node.js/Express backend developer, security engineer and professional UI/UX designer.
+
+You are modifying an EXISTING, FUNCTIONAL application.
+
+Your task is to improve its current features and introduce the additional requirements below.
+
+**DO NOT rebuild the application from scratch.**
+
+**DO NOT replace the existing architecture.**
+
+**DO NOT delete or reset existing records.**
+
+Preserve all working components, database structures, functionality and design decisions unless a modification is specifically required by this prompt.
+
+---
+
+# PART 1: EXISTING APPLICATION CONTEXT
+
+The application is the digital administration portal for:
+
+**OUR MOTHER OF PERPETUAL HELP (OMPH) CATHOLIC PARISH**
+
+**ST. CECILIA CHORAL MINISTRY**
+
+Existing technology:
+
+- React 19.
+- TypeScript.
+- Tailwind CSS.
+- Lucide React icons.
+- Node.js.
+- Express.
+- Vite.
+- html5-qrcode.
+- Local JSON server-side persistence.
+- localStorage synchronisation.
+- Server hydration guard.
+- Automatic database backup.
+
+Existing components include:
+
+- MemberPortal.tsx
+- AttendanceManager.tsx
+- ScheduleManager.tsx
+- MembershipManager.tsx
+- FinanceManager.tsx
+- DisciplineManager.tsx
+- SongLibrary.tsx
+- ChoirGallery.tsx
+- ChurchSettings.tsx
+
+The application already supports registration, attendance, QR check-in, rehearsal scheduling, accommodations, fines, payments, financial reconciliation, official queries, suspension, music scripts and photographic archives.
+
+Preserve these capabilities.
+
+# PART 2: MEMBER PORTAL — REDESIGN THE VISUAL EXPERIENCE
+
+This is one of the most important modifications.
+
+I want the MEMBER PORTAL to adopt the same dashboard-style visual architecture as the EXECUTIVE DASHBOARD.
+
+The two interfaces should share a consistent design language, navigation philosophy, sidebar structure and page layout.
+
+However, their functions and permissions must remain different.
+
+## 2.1 Main design principle: Vertical information hierarchy
+
+The current member interface needs improvement because information and feature options arranged excessively horizontally are easily overlooked.
+
+Think of how people read newspapers and articles.
+
+People naturally scan and scroll through vertically arranged information.
+
+I want the member experience to use this principle.
+
+Avoid:
+
+- Excessively wide horizontal feature arrangements.
+- Important options hidden in horizontal scrolling rows.
+- Horizontal carousels for primary navigation.
+- Tiny cards arranged in long horizontal strips.
+- Interfaces that require users to discover essential functions by scrolling sideways.
+
+Prioritise:
+
+- Vertical information flow.
+- Clearly labelled sections.
+- Full-width content blocks.
+- Vertically stacked information cards.
+- Readable announcements.
+- Generous spacing.
+- Easily discoverable navigation.
+- A clear content hierarchy.
+
+On desktop, the member portal should have a persistent left sidebar and a main content area.
+
+On mobile, the sidebar should collapse into a hamburger menu.
+
+## 2.2 Member sidebar navigation
+
+Use this navigation structure:
+
+**OVERVIEW**
+- My Dashboard.
+
+**CHOIR ACTIVITIES**
+- Today's Check-in.
+- My Attendance.
+- Rehearsal Schedule.
+- Choir Announcements.
+
+**MUSIC & MEDIA**
+- Parish Songs & Scripts.
+- Choir Gallery.
+
+**PERSONAL ACCOUNT**
+- My Financial Account.
+- Official Payment Details.
+- Profile & Security.
+
+**SUPPORT**
+- Submit Absence Excuse.
+- Lodge Complaint / Dispute.
+- Join Official WhatsApp Group.
+
+Every navigation option must have a real functional destination.
+
+Do not create decorative links.
+
+## 2.3 Member dashboard homepage
+
+Design a vertically organised homepage containing:
+
+1. Welcome message with member's registered name.
+2. Next scheduled choir activity.
+3. Latest official announcement.
+4. Attendance summary.
+5. Personal financial summary.
+6. Upcoming rehearsal calendar/list.
+7. Latest choir updates.
+8. Quick access to music scripts and choir gallery.
+9. Official WhatsApp group link.
+
+Give announcements and rehearsal information prominent full-width display areas.
+
+Do not put all the homepage information in a single row.
+
+The member should be able to understand the important choir updates simply by scrolling down.
+
+Preserve the existing hero photograph and its approved full-breadth horizontal framing.
+
+# PART 3: INDIVIDUAL CHORISTER AUTHENTICATION AND PASSWORD MANAGEMENT
+
+The existing personal account feature must be strengthened.
+
+Currently, member passwords are too similar or shared.
+
+This creates a serious privacy risk.
+
+I want every registered chorister to have their own individual login credentials.
+
+## 3.1 Individual member accounts
+
+Every member must have:
+
+- Unique Member ID.
+- Unique login username, preferably based on their Member ID.
+- Individual password.
+- Registered phone number.
+- Personal financial account.
+- Personal attendance history.
+
+No two members should share the same default password.
+
+Do not create deterministic passwords using Member ID, phone number, birthday or other easily guessed information.
+
+## 3.2 First-time account activation
+
+Create a secure first-time activation process.
+
+Recommended workflow:
+
+1. The executive registers a chorister.
+2. The system creates an account in an unactivated state.
+3. An authorised administrator generates a unique, random, one-time activation code.
+4. The member receives the code privately after their identity has been verified.
+5. The member enters their Member ID and activation code.
+6. The member creates their own password.
+7. The activation code becomes invalid after successful use or expiry.
+
+Do not use a shared password for newly registered members.
+
+Do not send activation codes or passwords to the public choir WhatsApp group.
+
+## 3.3 Change password
+
+Inside the member dashboard, create:
+
+**Profile & Security → Change Password**
+
+Require:
+
+- Current password.
+- New password.
+- Confirm new password.
+
+After successful change, invalidate other active sessions where appropriate and record the password-change event without recording the password itself.
+
+## 3.4 Forgotten password
+
+Provide a secure password-reset process.
+
+Since the choir does not currently have a funded SMS or email authentication service, use an administrator-assisted recovery process.
+
+An authorised executive should be able to generate a random, single-use password-reset token after verifying the member's identity.
+
+The member uses the token to create a new private password.
+
+The token must expire and become invalid after use.
+
+Log who authorised the reset.
+
+## 3.5 Security requirements
+
+- Never store passwords in plaintext.
+- Use Argon2id or bcrypt with appropriate password hashing parameters.
+- Never expose password hashes through frontend APIs.
+- Use secure server-managed sessions.
+- Prefer HttpOnly, Secure and SameSite cookies over authentication secrets stored in localStorage.
+- Apply login rate limiting.
+- Provide logout functionality.
+- Restrict personal account endpoints to the authenticated member.
+- Verify member identity on the backend.
+
+CRITICAL:
+
+A chorister must never be able to see another chorister's financial account by changing a Member ID in the browser or directly calling an API endpoint.
+
+The backend must derive the account identity from the authenticated session.
+
+# PART 4: EXECUTIVE AUTHENTICATION BY INDIVIDUAL POSITION
+
+I do not want a shared executive password or a single generic executive identity.
+
+Every executive must have their own account and password.
+
+Create an Executive Login interface.
+
+## 4.1 Executive positions
+
+Support:
+
+- Choir Master.
+- Provost.
+- Assistant Choir Master.
+- Assistant Provost.
+- Secretary.
+- Treasurer.
+
+The application administrator may assign one or more authorised roles to an individual.
+
+The role must be attached to the account by an authorised administrator.
+
+Executives must not be able to select a higher position for themselves when logging in.
+
+## 4.2 Individual executive accounts
+
+Each executive must have:
+
+- Unique Executive ID.
+- Full name.
+- Username.
+- Individual password.
+- Assigned position.
+- Account status.
+- Assigned permissions.
+- Account creation date.
+
+After login, display the executive's identity and official position.
+
+Example:
+
+WELCOME, CHARLES
+
+**PROVOST**
+
+OMPH Choir Management Portal.
+
+Another executive should see their own name and assigned position.
+
+## 4.3 Role-based permissions
+
+Create configurable role-based access control.
+
+Suggested initial permissions:
+
+| Role | Primary responsibilities |
+|---|---|
+| Choir Master | Overall oversight, approvals and executive decisions |
+| Provost | Attendance, punctuality, fine assessment and designated administrative duties |
+| Assistant Choir Master | Musical administration and assigned management decisions |
+| Assistant Provost | Assigned attendance and administrative support |
+| Secretary | Membership records and official documentation |
+| Treasurer | Payments, monthly dues and financial reconciliation |
+
+Permissions should be configurable by authorised administrators.
+
+Do not assume all executives should have unrestricted access to every module.
+
+Sensitive actions such as waivers, bank account changes, accommodation approval and suspension should require the appropriate approval authority.
+
+## 4.4 Backend security
+
+Do not secure executive pages merely by hiding their navigation links.
+
+Every sensitive API endpoint must independently authenticate and authorise the user.
+
+A member must not be able to retrieve executive data through direct API requests.
+
+A chorister must not be able to elevate their own account to an executive role.
+
+# PART 5: AUDIT LOG AND EXECUTIVE ACCOUNTABILITY
+
+This feature is compulsory.
+
+I want to know exactly which executive made every important modification or performed every sensitive administrative action.
+
+Every executive must act through their individual authenticated account.
+
+Create an append-only Audit Log.
+
+For each important action, record:
+
+- Unique Audit ID.
+- User ID.
+- Full name of officer.
+- Official position.
+- Action performed.
+- Module affected.
+- Record affected.
+- Previous value.
+- New value.
+- Reason for modification, where required.
+- Date and time.
+- Session or request reference.
+
+Examples of activities to audit:
+
+1. Rehearsal time changed.
+2. New rehearsal published.
+3. Rehearsal cancelled.
+4. Attendance manually corrected.
+5. Fine assessed.
+6. Fine waived.
+7. Payment recorded.
+8. Payment corrected.
+9. Bank account information updated.
+10. Monthly dues amount changed.
+11. Monthly dues generated.
+12. Member registered.
+13. Member deactivated.
+14. Member suspended.
+15. Member reinstated.
+16. Accommodation approved.
+17. Accommodation rejected.
+18. Song uploaded.
+19. Song edited or deleted.
+20. Choir photo uploaded or deleted.
+21. Executive role assigned or changed.
+22. Member password reset authorised.
+23. System settings changed.
+24. Financial reports exported.
+
+Never record passwords or authentication tokens in the audit log.
+
+The audit log must not be editable or deletable through the ordinary executive interface.
+
+It should be append-only at the application level and protected by server-side permissions.
+
+Create an Audit Log page where authorised executives can filter by:
+
+- Officer.
+- Position.
+- Action.
+- Module.
+- Date range.
+
+This provides accountability and protects officers against false allegations.
+
+# PART 6: WHATSAPP GROUP INTEGRATION — NO PAID API
+
+The choir already operates an official WhatsApp group/community.
+
+I will provide its invitation link through the application settings.
+
+Do not build a WhatsApp chatbot or purchase a WhatsApp API service.
+
+Implement two separate functions.
+
+## 6.1 Join Official WhatsApp Group
+
+Create a section on the Member Dashboard and a sidebar option called:
+
+JOIN OFFICIAL WHATSAPP GROUP.
+
+Allow an authorised administrator to enter and update the official group invitation URL in settings.
+
+When a member clicks the button:
+
+- Open the WhatsApp invitation link.
+- Allow the member to request to join.
+- Leave admission to WhatsApp group administrators.
+
+The choir uses approval before acceptance.
+
+Therefore, ensure the interface explains that joining remains subject to administrator approval.
+
+The application must not claim that joining the WhatsApp group automatically makes someone a registered choir member.
+
+Do not expose the group invitation link on an unrestricted public page.
+
+Provide a way for an authorised administrator to replace or disable an outdated invitation link.
+
+Where the group uses WhatsApp's Approve New Members feature, preserve that approval process.
+
+## 6.2 Share announcements directly from the website
+
+This is an essential feature.
+
+I want authorised executives to create announcements on the website and then share them to the existing choir WhatsApp group.
+
+Do not build an automated WhatsApp bot.
+
+Instead, implement a manual WhatsApp sharing workflow.
+
+Whenever an executive publishes an announcement, provide:
+
+- Share on WhatsApp.
+- Copy Announcement.
+- Edit Announcement.
+- Preview Announcement.
+
+The Share on WhatsApp button should open WhatsApp with the complete message pre-populated.
+
+The executive then manually selects the existing choir group and sends the message.
+
+Use the appropriate WhatsApp share/click-to-chat URL or native Web Share API, with a reliable fallback.
+
+Do not pretend that a normal WhatsApp link can directly publish to a group without user action.
+
+## 6.3 Types of announcements
+
+Support:
+
+- Regular rehearsal announcements.
+- Rehearsal time changes.
+- Special rehearsals.
+- General meetings.
+- Parish programmes.
+- Special Masses.
+- Liturgical celebrations.
+- Music assignments.
+- Emergency notifications.
+- Other official choir updates.
+
+## 6.4 Announcement template
+
+Every announcement should support:
+
+- Title.
+- Category.
+- Message body.
+- Relevant date.
+- Relevant time.
+- Venue.
+- Special instructions.
+- Publishing officer.
+- Publication timestamp.
+- Status.
+
+Allow optional attachments or existing application links where supported.
+
+Example:
+
+OMPH CATHOLIC PARISH CHOIR
+
+GENERAL CHOIR MEETING
+
+Date: [Date]
+
+Time: [Time]
+
+Venue: [Venue]
+
+All choristers are expected to attend.
+
+Please take note.
+
+ST. CECILIA CHORAL MINISTRY.
+
+The executive should be able to preview the formatted message before opening WhatsApp.
+
+## 6.5 Announcement distribution tracking
+
+The application may record that an announcement was shared through the WhatsApp share function.
+
+However, do not falsely claim that it was successfully delivered to the group or read.
+
+Record:
+
+- Announcement ID.
+- Officer who initiated sharing.
+- Share initiation timestamp.
+- Channel: WhatsApp.
+- Recipient destination: manually selected by officer.
+- Status: Share initiated by user.
+
+Include a note that delivery requires the officer to press Send in WhatsApp.
+
+# PART 7: CENTRAL FINANCIAL AND PARISH BRANDING SETTINGS
+
+The existing Parish Identity and Branding settings should be expanded.
+
+Create two separate configuration areas:
+
+1. Parish and Choir Identity.
+2. Official Financial Payment Details.
+
+## 7.1 Official bank account settings
+
+Inside:
+
+Executive Dashboard → Settings → Parish Branding & Payment Details.
+
+Allow authorised financial officers to configure:
+
+- Bank name.
+- Account name.
+- Account number.
+- Payment instructions.
+- Payment contact.
+- Account verification status.
+
+I have not supplied the actual bank details yet.
+
+Therefore, create editable fields and leave them unconfigured until entered by an authorised officer.
+
+Do not invent account details.
+
+## 7.2 Bank detail visibility
+
+Once configured and approved, display official payment information to authenticated choristers.
+
+Show it in:
+
+- Member Dashboard.
+- My Financial Account.
+- Official Payment Details section.
+
+Use a clearly designed payment information card.
+
+Include:
+
+- Bank name.
+- Account name.
+- Account number.
+- Copy Account Number button.
+- Payment narration instructions.
+
+Do not expose the details through an unrestricted public webpage.
+
+## 7.3 Bank detail changes
+
+This is financially sensitive.
+
+Only authorised financial officers should initiate account-detail changes.
+
+Require approval from a second authorised officer, preferably the Choir Master or another designated executive.
+
+Maintain an audit record showing:
+
+- Previous bank details.
+- Proposed new bank details.
+- Officer who initiated the change.
+- Officer who approved it.
+- Approval timestamp.
+- Effective date.
+
+Do not allow an unapproved account change to replace the active payment details.
+
+Notify members in the application when officially verified payment details change.
+
+# PART 8: INTRODUCE A MONTHLY CHOIR DUES MANAGEMENT MODULE
+
+This is a new financial feature.
+
+The choir intends to introduce monthly contributions or dues.
+
+Do not mix monthly dues with disciplinary fines.
+
+Create a dedicated module called:
+
+MONTHLY CHOIR DUES.
+
+## 8.1 Monthly dues configuration
+
+Inside:
+
+Executive Dashboard → Financial Management → Monthly Dues Settings.
+
+Provide the following editable configuration fields:
+
+- Monthly dues amount.
+- Currency.
+- Effective commencement month.
+- Monthly billing date.
+- Payment deadline.
+- Grace period, if approved.
+- Applicable membership categories.
+- Exemption eligibility.
+- Whether payment arrangements are allowed.
+- Whether the 21-day query process applies to unpaid dues.
+
+IMPORTANT:
+
+The actual monthly contribution amount has not yet been supplied.
+
+Do not invent an amount.
+
+Keep monthly dues disabled until an authorised executive enters the approved amount, start date and billing rules.
+
+## 8.2 Monthly dues generation
+
+Allow an authorised executive to generate a monthly dues cycle.
+
+For example:
+
+November 2026 Monthly Choir Dues.
+
+The system should automatically create one dues assessment for every eligible registered member.
+
+Avoid duplicate monthly charges.
+
+Use a unique assessment key based on:
+
+Member ID + Billing Month.
+
+Running the monthly generation function twice must not create duplicate charges.
+
+Preserve historical dues assessments even if membership status later changes.
+
+## 8.3 Monthly dues exemptions
+
+Allow formally approved exemptions or waivers.
+
+However:
+
+An attendance accommodation must not automatically exempt a member from monthly dues.
+
+Dues exemptions must be approved separately under the choir's financial policy.
+
+Maintain:
+
+- Exemption reason.
+- Effective period.
+- Approving officers.
+- Adjustment amount.
+- Audit history.
+
+## 8.4 Monthly dues payment status
+
+Each monthly dues assessment should have a status:
+
+- Unpaid.
+- Partially Paid.
+- Paid.
+- Exempted.
+- Waived.
+- Pending Verification.
+
+Allow partial payments.
+
+A member who pays half of their monthly dues must have their outstanding balance reduced accordingly.
+
+## 8.5 Dues reports
+
+The executive dashboard should show:
+
+- Current month's total expected dues.
+- Number of members assessed.
+- Members who have paid.
+- Members who have partially paid.
+- Members with outstanding dues.
+- Total dues collected.
+- Total dues outstanding.
+- Approved exemptions and waivers.
+
+Allow reports filtered by month.
+
+# PART 9: INTEGRATE MONTHLY DUES INTO PERSONAL FINANCIAL ACCOUNTS
+
+Every member must have a complete personal financial statement.
+
+The financial account should separate three categories:
+
+1. Monthly Choir Dues.
+2. Attendance Penalties.
+3. Other Approved Charges, if applicable.
+
+Example:
+
+MEMBER FINANCIAL ACCOUNT
+
+Total Amount Owed: ₦3,000
+
+| Financial category | Assessed | Paid | Outstanding |
+|---|---:|---:|---:|
+| Monthly Dues | ₦2,000 | ₦1,000 | ₦1,000 |
+| Late Arrival Fines | ₦600 | ₦200 | ₦400 |
+| Absence Fines | ₦1,000 | ₦0 | ₦1,000 |
+| **Total** | **₦3,600** | **₦1,200** | **₦2,400** |
+
+These are illustrative figures.
+
+Display monthly dues as individual billing periods:
+
+- September 2026: Paid.
+- October 2026: Paid.
+- November 2026: Outstanding.
+
+Make it possible to view:
+
+- Assessment date.
+- Billing period.
+- Amount.
+- Amount paid.
+- Remaining balance.
+- Payment date.
+- Transaction reference.
+- Verification status.
+
+Provide a downloadable or printable account statement.
+
+Never combine the monthly dues ledger and fine ledger into one undifferentiated record.
+
+## 9.1 Payment allocation
+
+When a member pays money, the Treasurer should specify which financial obligation is being settled.
+
+Support:
+
+- Monthly dues payment.
+- Fine payment.
+- Payment against a particular assessment.
+- General payment with authorised allocation.
+
+A payment must never silently reduce an unrelated debt.
+
+Where general payments are accepted, apply an explicit allocation rule, configurable and approved by the Choir Master.
+
+Maintain a complete transaction history.
+
+## 9.2 Bank transfer verification
+
+Members may submit:
+
+- Payment category.
+- Month or fine being paid.
+- Amount.
+- Transaction reference.
+- Optional payment evidence.
+
+A bank transfer submission must initially be marked Pending Verification.
+
+The Treasurer verifies the actual transfer before marking it Paid.
+
+Uploading a screenshot must not automatically confirm that money has entered the account.
+
+# PART 10: MONTHLY DUES AND THE 21-DAY QUERY WORKFLOW
+
+The application already supports a 21-day outstanding-debt threshold.
+
+Preserve the existing functionality.
+
+However, extend the configuration to distinguish between:
+
+- Attendance fines.
+- Monthly dues.
+- Other approved charges.
+
+Allow the Choir Master to determine which categories are subject to the 21-day query process.
+
+For attendance fines, retain the existing approved debt assessment rules.
+
+For monthly dues, calculate the ageing period from the officially configured due date or approved billing rule.
+
+Do not automatically introduce additional fines, interest or penalties for unpaid monthly dues.
+
+When an eligible account passes the approved 21-day threshold:
+
+- Flag the account.
+- Generate a query review notification.
+- Identify the underlying unpaid assessments.
+- Allow an authorised officer to review and approve the official query.
+- Preserve the opportunity for the member to explain or dispute the balance.
+
+Suspension must remain an authorised executive decision.
+
+Do not automatically suspend a member because a monthly payment is overdue.
+
+# PART 11: EXECUTIVE DASHBOARD UPDATES
+
+Introduce new dashboard cards and sections.
+
+Financial summary:
+
+- Monthly dues assessed.
+- Monthly dues collected.
+- Monthly dues outstanding.
+- Fine revenue assessed.
+- Fine payments collected.
+- Fine debt outstanding.
+- Total outstanding financial obligations.
+- Actual funds available.
+
+Administrative overview:
+
+- Current dues billing cycle.
+- Pending payment verification.
+- Members with unpaid monthly dues.
+- Members approaching the query threshold.
+- Recent account-detail modifications.
+- Recent executive actions.
+
+Show these features only to authorised executives.
+
+# PART 12: SECURITY, PERSISTENCE AND AUDIT
+
+Preserve the existing server-side database and hydration guard.
+
+The server must remain the authoritative data source.
+
+Do not store passwords in plaintext.
+
+Do not expose password hashes.
+
+Do not allow members to retrieve another member's records.
+
+Do not rely exclusively on frontend route protection.
+
+Implement role-based backend authorisation.
+
+Use append-only audit records for all financial, security and administrative modifications.
+
+Where multiple executives update data at the same time, prevent stale browser snapshots from overwriting newer records.
+
+Ensure the bank-detail update and monthly dues assessment operations are auditable and protected against duplicate submissions.
+
+Preserve automatic safety backups.
+
+Do not delete historical financial transactions.
+
+# PART 13: TESTING AND VERIFICATION
+
+Before declaring the modifications complete, test the following.
+
+### Member portal
+
+1. Member dashboard has the same overall visual navigation structure as the executive dashboard.
+2. Content flows vertically.
+3. Navigation works.
+4. Member announcements are visible.
+5. Member can view their personal account.
+6. Member A cannot view Member B's account.
+7. Member can change their own password.
+8. Password-reset process works.
+
+### Executive accounts
+
+1. Choir Master logs in with an individual account.
+2. Provost logs in with an individual account.
+3. Assistant Choir Master logs in with an individual account.
+4. Each sees the correct assigned role.
+5. Each is restricted to authorised functions.
+6. Audit records show the officer responsible for changes.
+
+### WhatsApp
+
+1. Official group link can be configured.
+2. Member can open the invitation.
+3. Group admission remains subject to WhatsApp administrator approval.
+4. Executive can create an announcement.
+5. Executive can copy an announcement.
+6. Executive can open WhatsApp with the announcement prefilled.
+7. Executive can manually select the group and send it.
+8. The system does not falsely report automatic WhatsApp delivery.
+
+### Financial details
+
+1. Bank account information can be entered.
+2. Members can view official payment details.
+3. Members can copy account numbers.
+4. Unauthorised officers cannot change bank information.
+5. Bank detail changes require approval.
+6. All changes are recorded in the audit log.
+
+### Monthly dues
+
+1. Approved monthly amount can be configured.
+2. Monthly assessment generation works.
+3. Duplicate assessments are prevented.
+4. Partial payments work.
+5. Full payments work.
+6. Payment verification works.
+7. Exemptions work.
+8. Member account balances update correctly.
+9. Monthly reports are accurate.
+10. Unpaid dues can be flagged for query review according to the approved policy.
+
+### Final build checks
+
+Run:
+
+- TypeScript compilation.
+- Production build.
+- Backend health check.
+- API authentication tests.
+- API role-permission tests.
+- Regression tests for existing modules.
+- Data persistence tests.
+- Multi-device concurrency tests.
+
+Do not use actual financial records for destructive testing.
+
+# PART 14: IMPLEMENTATION RULES
+
+This is an incremental modification, not a new application.
+
+1. Inspect the existing code before making changes.
+2. Preserve all working components.
+3. Preserve existing records.
+4. Reuse the existing database where possible.
+5. Do not create duplicate modules.
+6. Do not introduce WhatsApp API costs.
+7. Do not invent the monthly dues amount.
+8. Do not invent bank details.
+9. Do not invent executive permissions without making them configurable.
+10. Do not expose personal member balances.
+11. Do not use shared executive credentials.
+12. Do not make security dependent on hiding interface elements.
+13. Do not claim a payment has been verified merely because evidence was uploaded.
+14. Do not claim a WhatsApp announcement was delivered until an actual delivery mechanism exists.
+
+If any existing implementation is incompatible with these requirements, identify the conflict and explain the proposed safe modification.
+
+Before substantial architectural changes, describe the affected files and data structures.
+
+At completion, provide:
+
+- Summary of modifications.
+- Files modified.
+- New files created.
+- Database changes.
+- Security changes.
+- Tests performed.
+- Any limitations or outstanding configuration required from the choir executives.
+
+# FINAL OBJECTIVE
+
+The finished platform should offer:
+
+**A dignified, vertically organised Member Portal where choristers can access their own information and choir resources.**
+
+**A separate Executive Dashboard with individual position-based logins and traceable administrative actions.**
+
+**A rehearsal announcement system that lets executives publish schedules and share them manually to WhatsApp without a paid API.**
+
+**A central payment-information section displaying verified official choir bank details.**
+
+**A recurring Monthly Choir Dues module that is separately tracked from disciplinary fines and reflected accurately in individual financial accounts.**
+
+The application must remain secure, auditable, easy to use and consistent with the identity of Our Mother of Perpetual Help Catholic Parish – St. Cecilia Choral Ministry.
+
+Do not sacrifice data integrity or financial security for visual improvements.

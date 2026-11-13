@@ -14,6 +14,7 @@ import {
   ComplaintCategory, 
   Chorister 
 } from '../types';
+import { HelpToggle } from './HelpToggle';
 
 interface ComplaintsDeskProps {
   members: Chorister[];
@@ -48,8 +49,8 @@ export const ComplaintsDesk: React.FC<ComplaintsDeskProps> = ({
 
     // Anti-bias assignment: If administrative conduct or attendance, route to Choir Master!
     const assignedOfficer = category === 'Administrative Conduct' || category === 'Incorrect Attendance'
-      ? 'Sir Anthony K. Nwosu (Choir Master)'
-      : 'Brother Emmanuel Okoli (Provost)';
+      ? 'Choir Master'
+      : 'Provost';
 
     const newComplaint: ComplaintRecord = {
       complaintId,
@@ -75,14 +76,14 @@ export const ComplaintsDesk: React.FC<ComplaintsDeskProps> = ({
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="space-y-1.5">
           <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-purple-600" />
-            Confidential Complaint & Dispute Resolution Desk (Part 7 - Sheet 17)
+            Confidential Complaint & Dispute Resolution Desk
           </h2>
-          <p className="text-xs text-slate-500">
-            Allows choristers to challenge incorrect arrival timestamps, fines, or administrative conduct. Complaints regarding the Provost are routed directly to the Choir Master.
-          </p>
+          <HelpToggle label="How routing works">
+            Choristers can challenge arrival timestamps, fines, or administrative conduct. Complaints regarding attendance or administrative conduct route directly to the Choir Master.
+          </HelpToggle>
         </div>
 
         <button
@@ -222,8 +223,8 @@ export const ComplaintsDesk: React.FC<ComplaintsDeskProps> = ({
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none"
                 >
                   <option value="">-- Select Member --</option>
-                  {members.map(m => (
-                    <option key={m.memberId} value={m.memberId}>
+                  {members.map((m, idx) => (
+                    <option key={`${m.memberId}-${idx}`} value={m.memberId}>
                       {m.fullName} ({m.memberId})
                     </option>
                   ))}

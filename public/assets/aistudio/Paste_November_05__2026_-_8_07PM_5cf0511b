@@ -1,0 +1,1081 @@
+# OMPH CATHOLIC PARISH CHOIR MANAGEMENT PORTAL
+# CRITICAL SYSTEM CORRECTION, DATA PERSISTENCE, AUTHENTICATION AND UI REFINEMENT
+
+## PROJECT INSTRUCTION
+
+You are modifying an existing, functional full-stack application.
+
+Act as a senior software architect, database engineer, React/TypeScript developer, Node.js/Express engineer, authentication and security specialist, and UI/UX designer.
+
+Your task is to correct specific problems in the existing OMPH Choir Management Portal while preserving all working features and existing real parish records.
+
+This is not a request to rebuild the application.
+
+It is a controlled system correction and improvement project.
+
+The current application is:
+
+**Our Mother of Perpetual Help Catholic Parish (OMPH) – St. Cecilia Choral Ministry.**
+
+It uses React 19, TypeScript, Tailwind CSS, Node.js, Express, Vite and currently stores its main data in a JSON file.
+
+You must inspect the actual current code before making modifications.
+
+---
+
+# MOST IMPORTANT RULES
+
+1. Do not rebuild the application.
+2. Do not reset or initialise the database with default data.
+3. Do not delete actual chorister records.
+4. Do not delete existing financial records.
+5. Do not replace the existing application with a generic template.
+6. Do not remove the music library or photographic gallery.
+7. Do not introduce unapproved demo officers into production.
+8. Do not create shared executive credentials.
+9. Do not permit executive role switching after login.
+10. Do not keep both PIN and password as parallel login methods.
+11. Do not expose administrative functions before authentication.
+12. Do not silently alter existing financial or disciplinary records.
+13. Do not claim to have migrated data unless it has actually been migrated and verified.
+14. Do not enable paid cloud billing without explicit approval.
+
+Work in carefully defined phases, with data preservation taking priority over visual changes.
+
+# PHASE 1: CRITICAL DATA PERSISTENCE AND DATABASE CORRECTION
+
+THIS IS THE FIRST AND MOST IMPORTANT TASK.
+
+## 1.1 Investigate why application data disappears
+
+The current application stores its database in:
+
+- church_storage.json
+- church_storage.bak.json
+
+The existing audit identifies these files as the authoritative local JSON database and its safety backup.
+
+However, information disappears after application updates and republishing.
+
+Investigate the actual deployment environment.
+
+Determine:
+
+- Whether the published application runs on Google Cloud Run.
+- Whether its filesystem is ephemeral.
+- Whether church_storage.json is recreated after redeployment.
+- Whether initialData.ts is automatically loading default records.
+- Whether App.tsx overwrites data during hydration.
+- Whether localStorage can overwrite newer server records.
+- Whether the production database and development database are being confused.
+- Whether uploaded photographs and music files are also being lost.
+
+Do not assume the hydration guard has solved the persistence problem.
+
+Identify the actual source of data loss.
+
+## 1.2 Introduce persistent production storage
+
+The application needs a durable database that survives:
+
+- Page refreshes.
+- Browser changes.
+- Device changes.
+- Application updates.
+- Code modifications.
+- Google AI Studio prompt iterations.
+- Application redeployments.
+- Server restarts.
+- Cloud Run scaling and container replacement.
+
+Use Google Cloud Firestore through the Firebase integration supported by Google AI Studio, subject to the owner's approval of the Firebase project setup.
+
+Keep Node.js/Express as the authoritative backend.
+
+The frontend must communicate with the backend. Do not expose unrestricted Firestore database access to ordinary members.
+
+Use server-side Firestore access and enforce authentication and permissions in Express.
+
+The existing member and executive username/password authentication should be preserved. Do not replace all choir accounts with Google Sign-In.
+
+### Cost restrictions
+
+The choir does not have a dedicated software budget.
+
+Use the Firestore no-cost tier where possible.
+
+Do not:
+
+- Enable paid billing automatically.
+- Provision Cloud Storage buckets requiring a paid billing plan.
+- Enable paid backup features.
+- Introduce paid external databases.
+- Introduce paid hosting services without approval.
+
+If Firebase integration requires me to select a Google Cloud project, database location or approve an integration, clearly explain the action and let me approve it.
+
+Do not continue using temporary local JSON storage as the production source of truth.
+
+### Media storage warning
+
+The existing system contains a choir hero image, gallery uploads and sheet music.
+
+Do not put large image files directly into Firestore documents.
+
+Inspect the actual media storage and file sizes.
+
+Preserve the existing bundled parish images as application assets.
+
+For newly uploaded photographs or scores, identify a durable storage method that does not silently introduce paid infrastructure.
+
+If reliable persistence of large uploads requires a paid storage service, explain the limitation and stop before enabling it.
+
+Do not claim that an upload is permanently saved if it only exists in the temporary Cloud Run filesystem.
+
+## 1.3 Migration and data preservation
+
+Before changing the database architecture:
+
+1. Inspect the current production data where accessible.
+2. Locate church_storage.json.
+3. Locate church_storage.bak.json.
+4. Inspect the existing live application data if accessible.
+5. Identify which source contains the most recent valid records.
+6. Export a complete timestamped backup.
+7. Include member accounts, executive accounts, passwords hashes, role assignments, financial records, attendance, schedules, dues, complaints, songs, gallery metadata, announcements and audit records.
+8. Calculate record counts for every major collection.
+9. Migrate records into Firestore.
+10. Verify the migrated records against the original.
+11. Confirm that account relationships and financial balances remain unchanged.
+
+Make migration idempotent.
+
+Running migration twice must not create duplicate choristers, payments, fines or monthly dues.
+
+Preserve all unique IDs and timestamps.
+
+If the current live records cannot be accessed or the available database is empty, STOP and explain the problem.
+
+Do not replace missing historical information with demo data.
+
+Do not invent lost records.
+
+Do not proceed with a destructive migration until the backup and source of truth have been identified.
+
+Keep the original backup available for rollback until the new database has been independently verified.
+
+## 1.4 Production versus demo mode
+
+There must be a strict separation between:
+
+PRODUCTION MODE and DEMO MODE.
+
+Production mode must not automatically load:
+
+- Forty demonstration choristers.
+- Fake executive names.
+- Fake Choir Master details.
+- Fake Treasurer details.
+- Fake financial transactions.
+- Demo attendance.
+- Default demonstration officers.
+
+The real production installation should begin with an empty membership register where no real choristers have been registered.
+
+Executive positions may be preconfigured, but actual officer names and accounts must only appear after an authorised person registers them.
+
+Demo data should only be loaded through an explicit executive action.
+
+Provide:
+
+- Load Demo Dataset.
+- Exit Demo Mode.
+- Restore Production Data.
+
+Exiting demo mode must not overwrite actual production records.
+
+Initial data must never be automatically reloaded simply because the application has been updated.
+
+## 1.5 Schema migrations
+
+Introduce a database schema version.
+
+Every new application version must run controlled schema migrations.
+
+A missing field should be added safely without deleting unrelated information.
+
+A new feature must not trigger a full database replacement.
+
+Never use initialData.ts as the fallback production database whenever an existing persistent database is temporarily unavailable.
+
+If the production database cannot be reached, display a database connection warning and prevent unsafe writes.
+
+**Do not silently initialise a blank production database over existing data.**
+
+---
+
+# PHASE 2: EXECUTIVE POSITION AND ACCOUNT MANAGEMENT
+
+## 2.1 Add missing official positions
+
+The system must contain these initial executive positions:
+
+1. Choir Master.
+2. Assistant Choir Master.
+3. Provost.
+4. Assistant Provost.
+5. Secretary.
+6. Financial Secretary.
+7. Treasurer.
+8. Librarian.
+
+Create dedicated Financial Secretary and Librarian role definitions.
+
+Do not invent the actual officers' names.
+
+Create the positions without assigning fictional people to them.
+
+## 2.2 Dynamic position management
+
+Create:
+
+Executive Dashboard → Settings → Executive Management → Positions & Permissions.
+
+Allow the authorised system administrator to:
+
+- Add a position.
+- Edit a position.
+- Change its description.
+- Assign permissions.
+- Rename a position.
+- Deactivate a position.
+- Archive a position.
+- Restore an archived position.
+- Delete an unused position.
+
+Examples of additional positions could include:
+
+- Welfare Officer.
+- Publicity Officer.
+- Section Leader.
+- Assistant Secretary.
+
+These are examples only; do not automatically add them.
+
+## 2.3 Safe position deletion
+
+A position may be permanently deleted only when:
+
+- No active officer is assigned to it.
+- It has no pending approval responsibility.
+- No historical record depends on its identity.
+
+If historical records exist, archive the position instead of deleting it.
+
+Archived roles must remain identifiable in historical audit records.
+
+Prevent deletion of the last authorised system administrator role.
+
+## 2.4 Separate positions from individual accounts
+
+A position is not an account.
+
+Creating Financial Secretary must not automatically create a person called Financial Secretary.
+
+The administrator must:
+
+1. Create or select a real executive.
+2. Assign the approved position.
+3. Create the executive login.
+4. Have the officer activate their individual credentials.
+5. Assign the position's permissions.
+
+Preserve historical records of previous officers.
+
+---
+
+# PHASE 3: EXECUTIVE AUTHENTICATION — ONE LOGIN METHOD ONLY
+
+The current application has an inconsistency:
+
+The default executive password is reportedly not working reliably, while the PIN fallback is functioning.
+
+There must be exactly ONE executive authentication method.
+
+Use:
+
+**Individual username + individual password.**
+
+Remove the PIN fallback after a safe credential migration.
+
+## 3.1 One-time migration from the existing login
+
+Do not immediately disable the only currently working administrative access method before establishing a new administrator account.
+
+Use the existing working legacy access only as a temporary, authorised bootstrap mechanism.
+
+The process must be:
+
+1. Authenticate the current administrator through the working legacy mechanism once.
+2. Create or confirm the first real system administrator account.
+3. Assign the administrator's actual position.
+4. Set a new individual username.
+5. Set a strong individual password.
+6. Confirm that the new username/password login works.
+7. Revoke the legacy PIN mechanism.
+8. Remove the shared default password.
+9. Invalidate obsolete shared credentials and old sessions.
+10. Require all other officers to activate or reset their own credentials.
+
+The legacy PIN must not remain as an alternative login after migration.
+
+Do not hardcode old credentials into the new login screen.
+
+Do not display the old PIN in source code comments or public interface messages.
+
+## 3.2 Individual executive credentials
+
+Every executive must have:
+
+- Unique Executive ID.
+- Unique username.
+- Individual password.
+- Actual full name.
+- One assigned primary position.
+- Approved permissions.
+- Account status.
+
+No shared executive password.
+
+No universal default password.
+
+Do not prepopulate fake executive names.
+
+## 3.3 Remove role switching completely
+
+The current executive interface allows switching roles.
+
+This must be removed.
+
+When an individual logs in:
+
+- The backend identifies their account.
+- The backend identifies their assigned official position.
+- Their permissions are loaded automatically.
+- Their dashboard displays their actual position.
+
+Example:
+
+Executive login:
+
+Username: provost01  
+Password: [individually chosen]
+
+After successful authentication:
+
+WELCOME, CHARLES
+
+PROVOST
+
+The user must not be able to select Choir Master, Treasurer, Librarian or another role from a dropdown.
+
+Remove the role-switcher component from ExecutiveSidebar.tsx and any related functionality in App.tsx.
+
+Changing an officer's position must be an authorised administrative operation with an audit entry.
+
+If one person holds two positions, assign the authorised permissions to that person's account without providing a role-impersonation or role-switching control.
+
+## 3.4 Password management
+
+Every executive must be able to change their own password.
+
+Create:
+
+Executive Dashboard → Profile & Security → Change Password.
+
+Fields:
+
+- Current password.
+- New password.
+- Confirm new password.
+
+Provide an eye icon to show or hide the characters currently being typed.
+
+Do not reveal an existing stored password.
+
+Use secure salted password hashing.
+
+Do not store passwords in plaintext.
+
+Require a new password when an officer activates their account.
+
+## 3.5 Password visibility
+
+Both member and executive password inputs should have a show/hide password control.
+
+This is intended to help users verify what they are typing.
+
+Do not create a feature that retrieves a stored password from the database.
+
+Passwords are hashed and should not be reversible.
+
+If login fails, display a clear message that the username or password is incorrect.
+
+Do not silently redirect users or give a misleading database authentication error.
+
+---
+
+# PHASE 4: FIX MEMBER ACTIVATION AND PASSWORD RESET
+
+The current application sometimes displays:
+
+"Authentication Required"
+
+when creating activation codes or attempting member account operations.
+
+Inspect the exact implementation.
+
+The correct workflow must be clear.
+
+## 4.1 New member activation
+
+The process should be:
+
+1. An authorised executive logs in.
+2. The executive opens Chorister Management.
+3. Selects the registered member.
+4. Generates a single-use activation code.
+5. The backend validates the executive's authenticated session and permissions.
+6. The code is displayed privately to the executive.
+7. The executive shares it directly with the intended chorister.
+8. The chorister enters their Member ID and activation code.
+9. The chorister creates their own password.
+10. The account becomes active.
+
+The member should not need an executive session to complete their own activation.
+
+The activation code must be random, single-use and time-limited.
+
+## 4.2 Executive authentication requirement
+
+Generating an activation or password-reset token is an executive administrative action.
+
+It must require an authenticated executive session with the appropriate permission.
+
+Do not interpret the member's phone number as sufficient authentication.
+
+Check whether the frontend is correctly sending the executive bearer token with the activation/reset request.
+
+Fix any missing Authorization headers.
+
+## 4.3 Reset member password
+
+An authorised executive should be able to generate a one-time reset token after verifying the member's identity.
+
+The member uses the token to create a new private password.
+
+Clearly explain in the interface:
+
+- Who is authorised to generate activation codes.
+- Who is authorised to generate password-reset tokens.
+- Why authentication is required.
+- What the member must enter to activate their account.
+- What to do when a token expires.
+
+Do not display "Authentication Required" without explaining the actual next step.
+
+Record account activation and reset actions in the audit log.
+
+---
+
+# PHASE 5: CREATE A PROPER PUBLIC LANDING PAGE
+
+This is a major UI correction.
+
+Currently, opening the application link automatically exposes the dashboard and application features, including a member check-in container that displays a sign-out button even when the visitor has not logged in.
+
+This is incorrect.
+
+The public landing page must not display an authenticated dashboard.
+
+## 5.1 Public landing route
+
+Redesign the public route `/`.
+
+It should show a dedicated branded landing page.
+
+Use the existing full choir group photograph:
+
+Choir_hero_banner.jpg.
+
+The same original choir photograph should be used:
+
+- On the public landing page.
+- As the hero image inside the authenticated Member Dashboard.
+- As the hero image inside the Executive Dashboard.
+
+Use the existing approved 1.69:1 horizontal framing.
+
+Do not generate a replacement photograph.
+
+Do not crop off the outer choristers.
+
+## 5.2 Central login design
+
+Place a prominent login panel near the centre of the landing page.
+
+Display:
+
+OUR MOTHER OF PERPETUAL HELP CATHOLIC PARISH
+
+ST. CECILIA CHORAL MINISTRY
+
+Welcome to the official Choir Management Portal.
+
+Provide:
+
+**MEMBER LOGIN**
+
+- Member ID or username.
+- Password.
+- Show/hide password control.
+- Sign In button.
+- Forgot Password / Account Activation instructions.
+
+The login panel should be clear and visually central.
+
+The choir photograph should establish the identity and appearance of the parish.
+
+Do not crowd the landing page with administrative cards or application modules.
+
+## 5.3 Unauthenticated restrictions
+
+Before successful login, do not display:
+
+- Member dashboard.
+- Attendance dashboard.
+- Personal financial account.
+- Executive dashboard.
+- Chorister registration records.
+- Executive navigation.
+- Sign-out buttons.
+- Member attendance controls.
+- Private choir information.
+
+Remove the guest-mode default mounting of the MemberPortal attendance terminal.
+
+Do not show a Member Check-in container before authentication.
+
+A sign-out control must only appear after authentication.
+
+## 5.4 Executive entry point
+
+Do not display an obvious "Executive Console" button on the public landing page.
+
+Provide a separate executive access route, such as:
+
+`/office-access`
+
+This route should be known to authorised officers and not displayed in the public navigation.
+
+The executive login page should request:
+
+- Executive username.
+- Individual password.
+- Show/hide password control.
+
+Do not expose the dashboard behind the login.
+
+IMPORTANT:
+
+A hidden URL is not a replacement for security.
+
+The backend must still require valid authentication, role permissions and session verification.
+
+Apply login rate limiting and appropriate security controls.
+
+After successful executive authentication, redirect directly to the dashboard belonging to that officer's assigned role.
+
+## 5.5 Logout behaviour
+
+When a member or executive logs out:
+
+- Revoke or invalidate their session.
+- Clear authenticated client state safely.
+- Return them to the public landing page.
+- Prevent access to protected routes through browser history without renewed authentication.
+
+If an existing authenticated session is valid when the application is reopened, normal session restoration may occur.
+
+However, an unauthenticated visitor must never be treated as already signed in.
+
+---
+
+# PHASE 6: MEMBER SIDEBAR REFINEMENT
+
+The current Member Dashboard is already arranged according to the desired dashboard format.
+
+Preserve its existing appearance and vertical reading flow.
+
+Do not redesign the whole Member Dashboard.
+
+Make this specific navigation modification.
+
+## 6.1 Keep these two sections fully visible
+
+**OVERVIEW**
+- My Dashboard.
+
+**CHOIR ACTIVITIES**
+- Today's Check-in.
+- My Attendance.
+- Rehearsal Schedule.
+- Choir Announcements.
+
+These should remain immediately visible in the sidebar.
+
+## 6.2 Convert these sections into expandable dropdowns
+
+**MEDIA & MUSIC**
+- Parish Songs & Scripts.
+- Choir Gallery.
+
+**PERSONAL ACCOUNT**
+- My Financial Account.
+- Official Payment Details.
+- Profile & Security.
+
+**SUPPORT**
+- Submit Absence Excuse.
+- Lodge Complaint / Dispute.
+- Join Official WhatsApp Group.
+
+These three categories should be collapsed by default.
+
+Members can click the category heading to expand or collapse its submenu.
+
+Use chevron indicators and smooth but restrained transitions.
+
+Do not use horizontal navigation strips.
+
+## 6.3 Member dashboard homepage content
+
+The main homepage should focus on:
+
+- Overview.
+- Current choir activities.
+- Upcoming rehearsals.
+- Announcements.
+- Attendance information.
+- Relevant choir schedule information.
+
+Do not fill the homepage with the entire music library, gallery, financial history or complaint forms.
+
+Those should be accessed through their respective dropdown sections.
+
+Preserve the current vertically stacked information layout.
+
+---
+
+# PHASE 7: FIX OFFICIAL BANK ACCOUNT APPROVAL AND NOTIFICATION
+
+The current application claims to support two-officer bank account approval.
+
+However, when a bank account change is proposed, it does not reliably create or deliver a visible approval request to the Choir Master.
+
+Correct this workflow.
+
+## 7.1 Bank change proposal
+
+When an authorised executive proposes a new bank account:
+
+1. Validate the proposer.
+2. Record the existing account details.
+3. Record the proposed account details.
+4. Record the reason for the change.
+5. Record the proposer and timestamp.
+6. Save the proposal persistently.
+7. Mark it Pending Approval.
+
+Do not activate the new account immediately.
+
+## 7.2 Actual approval notification
+
+Create an in-app notification and approval task addressed to the Choir Master by default.
+
+When the proposal is created:
+
+- Add a persistent notification to the Choir Master's account.
+- Display a pending approval counter.
+- Display the request in the Choir Master's executive dashboard.
+- Create a dedicated Bank Details Approval section.
+- Show the proposer, date, reason and proposed details.
+- Provide Approve and Reject actions.
+
+Do not merely display a generic banner without a functional approval workflow.
+
+If the Choir Master initiated the change, route the approval to another eligible independent executive under the two-officer approval rules.
+
+The proposer must never approve their own change.
+
+## 7.3 Approval and rejection
+
+On approval:
+
+- Activate the proposed account details.
+- Record the approver.
+- Record approval timestamp.
+- Preserve previous bank details in history.
+- Notify relevant executives.
+- Make the verified account details visible to members.
+
+On rejection:
+
+- Preserve the old active bank details.
+- Record rejection reason.
+- Notify the proposer.
+- Close the pending request.
+
+All actions must be persisted and audit-logged.
+
+The notification must survive logout, refresh and application redeployment.
+
+Do not require paid email, SMS or WhatsApp API services.
+
+---
+
+# PHASE 8: SECURE THE DATABASE AND API
+
+The audit identifies:
+
+`GET /api/church-data`
+
+as unauthenticated public read access, and:
+
+`POST /api/church-data`
+
+as an unauthenticated full database synchronisation endpoint.
+
+These endpoints require security review.
+
+## 8.1 Remove unrestricted database modification
+
+Do not permit an unauthenticated browser to POST an arbitrary complete database snapshot.
+
+Replace unrestricted full-database writes with secure, validated, authenticated operations.
+
+Every sensitive write operation must validate:
+
+- Authenticated user.
+- User's assigned role.
+- Required permission.
+- Record ownership where applicable.
+- Input validation.
+- Data consistency.
+
+If a generic administrative synchronisation mechanism must remain, restrict it to a properly authenticated system administrator and prevent stale snapshots from overwriting newer records.
+
+## 8.2 Public read separation
+
+Public users should only receive data that has explicitly been designated public.
+
+Create a sanitised public-data interface where necessary.
+
+Do not expose:
+
+- Password hashes.
+- Session tokens.
+- Activation codes.
+- Reset tokens.
+- Full membership records.
+- Financial accounts.
+- Private complaints.
+- Disciplinary details.
+- Bank proposal history.
+
+All private endpoints must require valid authenticated sessions.
+
+## 8.3 Security tests
+
+Test direct API access, not only interface visibility.
+
+Attempt unauthorised requests to sensitive endpoints in a controlled test environment.
+
+A visitor must not be able to:
+
+- Change executive roles.
+- Access member accounts.
+- Read financial ledgers.
+- Modify bank details.
+- Create fake payments.
+- Alter attendance.
+- Change the production database.
+- Generate activation tokens without the required executive permissions.
+
+---
+
+# PHASE 9: DATA INTEGRITY AND PRODUCTION INITIALISATION
+
+This section prevents a repeat of the existing data-loss problem.
+
+## 9.1 No automatic demo officers
+
+The following positions may exist as predefined role definitions:
+
+- Choir Master.
+- Assistant Choir Master.
+- Provost.
+- Assistant Provost.
+- Secretary.
+- Financial Secretary.
+- Treasurer.
+- Librarian.
+
+However, do not automatically populate fake officer names.
+
+An unassigned position must display:
+
+Vacant / Not Yet Assigned.
+
+Never tell a real chorister that a fake demonstration person is their Choir Master.
+
+## 9.2 No automatic demo membership
+
+Production mode must not automatically load forty sample choristers.
+
+No fake names, attendance, fines or payments should appear in the live system.
+
+Demo officers and demo members must exist only when an authorised administrator explicitly activates Demo Mode.
+
+## 9.3 Update and redeployment protection
+
+Every application update must preserve the existing persistent database.
+
+Use explicit, version-controlled migrations.
+
+Do not recreate the database from initialData.ts during startup.
+
+Do not replace missing records with demo records.
+
+Do not overwrite an existing Firestore collection with a blank client state.
+
+If persistent database access fails:
+
+- Display a clear service error.
+- Prevent unsafe write operations.
+- Preserve local data awaiting synchronisation.
+- Do not clear or reinitialise the production dataset.
+
+## 9.4 Data integrity checks
+
+After every schema migration, verify:
+
+- Chorister count.
+- Executive account count.
+- Position count.
+- Attendance count.
+- Fine count.
+- Payment count.
+- Monthly dues count.
+- Query count.
+- Suspension count.
+- Song count.
+- Gallery metadata count.
+- Announcement count.
+- Audit record count.
+
+Compare critical totals and financial balances against the pre-migration backup.
+
+Never mark a migration complete if important records are missing.
+
+---
+
+# PHASE 10: PASSWORD AND ACTIVATION USER EXPERIENCE
+
+Provide clear user messages.
+
+Examples:
+
+If an executive attempts to generate a member activation code without being authenticated:
+
+"Please sign in with an authorised executive account to generate activation codes."
+
+If an activation code is incorrect:
+
+"The activation code is invalid or has expired. Please request a new code from the choir administration."
+
+If a password is incorrect:
+
+"The username or password you entered is incorrect. Please check your entry and try again."
+
+If a member is attempting to activate their account:
+
+"Enter your registered Member ID and the one-time activation code provided by the choir administration. You will then create your own password."
+
+Do not display vague messages such as Authentication Required without explaining the next step.
+
+All password fields must support an eye icon for showing or hiding the characters currently being entered.
+
+Never expose stored passwords.
+
+---
+
+# PHASE 11: COMPREHENSIVE TESTING
+
+Use a separate test environment or explicitly isolated demo dataset.
+
+Do not test destructive operations against real financial records.
+
+Test the following.
+
+## Landing page
+
+1. Opening the public URL displays the landing page.
+2. No authenticated dashboard is visible before login.
+3. No check-in container is shown before authentication.
+4. No sign-out button appears for an unauthenticated visitor.
+5. The central member login works.
+6. Executive login is not displayed in public navigation.
+7. The separate executive route works securely.
+8. Both public and authenticated hero images display correctly.
+
+## Authentication
+
+1. Member login with valid credentials.
+2. Executive login with valid individual credentials.
+3. Incorrect password handling.
+4. Show/hide password.
+5. Password change.
+6. Password reset.
+7. Member activation code generation.
+8. Member activation.
+9. Executive session expiry.
+10. Removal of PIN login after successful migration.
+11. No role-switching control.
+12. Correct role displayed after login.
+
+## Position management
+
+1. Financial Secretary exists as a position.
+2. Librarian exists as a position.
+3. Create a custom position.
+4. Assign permissions.
+5. Assign a real officer.
+6. Edit a position.
+7. Archive an occupied position.
+8. Restore a position.
+9. Delete an unused position.
+10. Prevent unsafe deletion.
+
+## Member navigation
+
+1. Overview visible.
+2. Choir Activities visible.
+3. Media & Music collapsed by default.
+4. Personal Account collapsed by default.
+5. Support collapsed by default.
+6. Each dropdown opens and closes.
+7. Existing functionality remains accessible.
+
+## Bank approvals
+
+1. Submit a proposed bank change.
+2. Persist the proposal.
+3. Generate notification for the designated approver.
+4. Display a pending notification count.
+5. Approve using another executive account.
+6. Reject a proposal.
+7. Prevent self-approval.
+8. Verify approved bank details persist after refresh and redeployment.
+
+## Data persistence
+
+1. Create a chorister.
+2. Create an executive.
+3. Record attendance.
+4. Record a fine.
+5. Record a payment.
+6. Publish a rehearsal.
+7. Upload or update a supported media item.
+8. Restart the backend.
+9. Reopen the application.
+10. Deploy a new application version.
+11. Confirm that all production data remains intact.
+12. Confirm that no demo records replace actual data.
+
+## API security
+
+1. Unauthenticated full-database write is rejected.
+2. Ordinary members cannot access executive records.
+3. Members cannot access another member's financial account.
+4. Executives cannot perform actions outside their permissions.
+5. Invalid role changes are rejected.
+6. All sensitive actions generate audit entries.
+
+---
+
+# PHASE 12: BUILD AND HANDOVER REQUIREMENTS
+
+Preserve the existing architecture wherever possible.
+
+Before modifications, make a source-code snapshot or commit.
+
+After implementation, run:
+
+- TypeScript compilation.
+- Vite production build.
+- Backend health tests.
+- Authentication tests.
+- API authorisation tests.
+- Database migration verification.
+- Data integrity checks.
+- Existing feature regression tests.
+
+Do not declare success because the code compiles alone.
+
+Verify the actual user workflows.
+
+At the end, provide:
+
+1. Root cause of the previous data loss.
+2. Database architecture after correction.
+3. Data migration summary.
+4. Record counts before and after migration.
+5. Backup location and recovery procedure.
+6. Changes to executive authentication.
+7. Changes to member authentication.
+8. New role management functionality.
+9. Landing-page changes.
+10. Member sidebar changes.
+11. Bank approval notification changes.
+12. API security changes.
+13. All files modified.
+14. Tests performed and results.
+15. Any remaining configuration required from me.
+
+If Firebase integration or project selection requires my action, stop at that point, clearly explain the required action, and do not use a temporary filesystem workaround.
+
+If you cannot access the existing live production data or its backups, report this before migrating. Do not pretend to have recovered records that are unavailable.
+
+# FINAL STANDARD
+
+The final application must provide:
+
+- Reliable persistent production data.
+- No fake default officers or automatic demo choristers.
+- Secure individual executive and member accounts.
+- Exactly one executive login method.
+- No executive role switching.
+- Configurable executive positions.
+- Proper public landing and login architecture.
+- An authenticated and privacy-protected member experience.
+- A separate secured executive administration portal.
+- Functional bank-detail approval notifications.
+- Clear and reliable member account activation.
+- No unauthorised full-database writes.
+
+Most importantly:
+
+**Updating the application must never reset the real choir's membership register, executive appointments, attendance records or financial history.**
+
+Treat preservation of actual parish records as the highest priority throughout this project.

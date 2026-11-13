@@ -72,24 +72,31 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
   const [formError, setFormError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const filteredSongs = songs.filter(s => {
-    const matchesSearch = 
-      s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.composer && s.composer.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      s.scriptText.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.solfaNotes && s.solfaNotes.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesCat = selectedCategory === 'All' || s.category === selectedCategory;
-    return matchesSearch && matchesCat;
-  });
+  const filteredSongs = songs
+    .map(s => ({
+      ...s,
+      scriptText: s.scriptText || (s as any).lyrics || '',
+      solfaNotes: s.solfaNotes || (s as any).solfaNotation || '',
+    }))
+    .filter(s => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = 
+        (s.title || '').toLowerCase().includes(q) ||
+        (s.composer && s.composer.toLowerCase().includes(q)) ||
+        (s.scriptText && s.scriptText.toLowerCase().includes(q)) ||
+        (s.solfaNotes && s.solfaNotes.toLowerCase().includes(q));
+      
+      const matchesCat = selectedCategory === 'All' || s.category === selectedCategory;
+      return matchesSearch && matchesCat;
+    });
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFormError('');
 
-    if (file.size > 8 * 1024 * 1024) {
-      setFormError('File size exceeds 8MB. Please select an image or score under 8MB.');
+    if (file.size > 400 * 1024) {
+      setFormError('File size exceeds 400 KB limit. To preserve cloud database storage and prevent document bloat, please upload a compressed score under 400 KB.');
       return;
     }
 
@@ -124,8 +131,8 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
     setCategory(song.category);
     setLiturgicalSeason(song.liturgicalSeason || 'Ordinary Time');
     setKeySignature(song.keySignature || '');
-    setSolfaNotes(song.solfaNotes || '');
-    setScriptText(song.scriptText);
+    setSolfaNotes(song.solfaNotes || song.solfaNotation || '');
+    setScriptText(song.scriptText || song.lyrics || '');
     setSheetMusicUrl(song.sheetMusicUrl || '');
     setSheetFileName(song.sheetMusicUrl ? 'Uploaded score attached' : '');
     setShowAddModal(true);
@@ -133,7 +140,7 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
 
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !scriptText.trim()) return;
+    if (!title.trim()) return;
 
     if (editingSong) {
       const updated: ChoirSong = {
@@ -194,9 +201,6 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
               <h2 className="text-base font-bold text-slate-900">
                 Parish Choir Song Library & Music Scripts
               </h2>
-              <p className="text-xs text-slate-500">
-                Official liturgical repertoire, tonic sol-fa notations, stanzas & sheet scores of {settings?.choirName || 'OMPH Choir'}
-              </p>
             </div>
           </div>
         </div>
@@ -316,7 +320,9 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
 
                 {/* Excerpt of lyrics */}
                 <p className="text-xs text-slate-600 line-clamp-2 bg-slate-50 p-2 rounded-md font-serif italic border border-slate-100">
-                  {song.scriptText.split('\n')[0]}
+                  {song.scriptText
+                    ? song.scriptText.split('\n')[0]
+                    : ((song as any).lyrics ? (song as any).lyrics.split('\n')[0] : (song.solfaNotes || 'Choral score and lyrics archived.'))}
                 </p>
               </div>
 
@@ -419,13 +425,15 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
                   Parish Choral Repertoire Script
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleCopy(selectedSong.scriptText, 'lyrics')}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
-                  >
-                    {copiedType === 'lyrics' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedType === 'lyrics' ? 'Copied Lyrics!' : 'Copy Script'}
-                  </button>
+                  {(selectedSong.scriptText || (selectedSong as any).lyrics) && (
+                    <button
+                      onClick={() => handleCopy(selectedSong.scriptText || (selectedSong as any).lyrics || '', 'lyrics')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
+                    >
+                      {copiedType === 'lyrics' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedType === 'lyrics' ? 'Copied Lyrics!' : 'Copy Script'}
+                    </button>
+                  )}
 
                   {selectedSong.solfaNotes && (
                     <button
@@ -465,15 +473,30 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
               )}
 
               {/* Script & Lyrics Section */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-slate-700" />
-                  Liturgical Text & Lyrics
-                </h4>
-                <div className="p-4 sm:p-5 rounded-xl bg-amber-50/40 border border-amber-200/60 text-slate-900 font-serif text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
-                  {selectedSong.scriptText}
+              {(selectedSong.scriptText || (selectedSong as any).lyrics) && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-slate-700" />
+                    Liturgical Text & Lyrics
+                  </h4>
+                  <div className="p-4 sm:p-5 rounded-xl bg-amber-50/40 border border-amber-200/60 text-slate-900 font-serif text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
+                    {selectedSong.scriptText || (selectedSong as any).lyrics}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Audio Practice Guide Section */}
+              {selectedSong.audioGuideUrl && (
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Music className="w-3.5 h-3.5 text-amber-700" />
+                    Audio Practice Guide
+                  </h4>
+                  <audio controls className="w-full" src={selectedSong.audioGuideUrl}>
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
 
               {/* Uploaded Sheet Music Score Viewer */}
               {selectedSong.sheetMusicUrl && (
@@ -614,14 +637,13 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
               {/* Full Lyrics / Script */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Full Song Script / Lyrics (Verses & Chorus) *
+                  Full Song Script / Lyrics (Verses & Chorus) <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <textarea
-                  required
                   rows={6}
                   value={scriptText}
                   onChange={(e) => setScriptText(e.target.value)}
-                  placeholder="Enter full text of the hymn, arranged in stanzas and chorus..."
+                  placeholder="Optional: Enter full text of the hymn, arranged in stanzas and chorus..."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-serif text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900"
                 />
               </div>
@@ -657,6 +679,10 @@ export const SongLibrary: React.FC<SongLibraryProps> = ({
                     </button>
                   )}
                 </div>
+              </div>
+
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-900">
+                <span className="font-semibold">Audio Practice Recordings:</span> Permanent cloud audio storage is not yet provisioned for this portal. Direct audio file uploads are disabled so recordings are never lost or rejected by database size limits.
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">

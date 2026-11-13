@@ -180,12 +180,12 @@ export const FinanceManager: React.FC<FinanceManagerProps> = ({
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900"
                 >
                   <option value="">-- Choose Member --</option>
-                  {members.map(m => {
+                  {members.map((m, idx) => {
                     const mFines = fines.filter(f => f.memberId === m.memberId).reduce((s, f) => s + f.amount, 0);
                     const mPaid = payments.filter(p => p.memberId === m.memberId).reduce((s, p) => s + p.amount, 0);
                     const bal = mFines - mPaid;
                     return (
-                      <option key={m.memberId} value={m.memberId}>
+                      <option key={`${m.memberId}-${idx}`} value={m.memberId}>
                         {m.fullName} (Owes: ₦{bal})
                       </option>
                     );
@@ -364,14 +364,14 @@ export const FinanceManager: React.FC<FinanceManagerProps> = ({
               <tbody className="divide-y divide-slate-100">
                 {members
                   .filter(m => m.fullName.toLowerCase().includes(searchAccount.toLowerCase()))
-                  .map(m => {
+                  .map((m, idx) => {
                     const mFines = fines.filter(f => f.memberId === m.memberId).reduce((s, f) => s + f.amount, 0);
                     const mPaid = payments.filter(p => p.memberId === m.memberId).reduce((s, p) => s + p.amount, 0);
                     const mWaivers = adjustments.filter(a => a.memberId === m.memberId).reduce((s, a) => s + a.amount, 0);
                     const balance = mFines - mPaid - mWaivers;
 
                     return (
-                      <tr key={m.memberId} className="hover:bg-slate-50">
+                      <tr key={`${m.memberId}-${idx}`} className="hover:bg-slate-50">
                         <td className="py-2 px-3 font-mono text-slate-500">{m.memberId}</td>
                         <td className="py-2 px-3 font-medium text-slate-900">{m.fullName}</td>
                         <td className="py-2 px-3 text-slate-600">{m.voicePart}</td>
